@@ -1,97 +1,50 @@
-# Panduan Deploy Aplikasi "Classroom" ke GitHub Pages 🚀
+# Panduan Mengatasi Layar Putih (Blank Screen) & Deploy ke GitHub Pages 🚀
 
-Aplikasi ini sudah dioptimalkan sepenuhnya agar siap dideploy ke **GitHub Pages** sebagai situs web statis (Single Page Application) gulan-gulan yang berkinerja tinggi, berkecepatan tinggi, dan aman.
+Aplikasi Anda mengalami **layar putih (blank white screen)** karena saat ini GitHub Pages disetel untuk memuat kode mentah TypeScript (`.tsx`) langsung dari branch `main`. Browser internet tidak bisa menerjemahkan berkas `.tsx` secara langsung tanpa di-build ke JavaScript biasa.
 
-Berikut adalah langkah-langkah mudah untuk melakukan deploy dari repositori GitHub Anda:
+Untuk mengatasinya, kami telah memperbarui sistem otomatis **GitHub Actions** pada repositori Anda. Sekarang, setiap kali Anda mengunggah atau melakukan push perubahan kode ke branch `main`, GitHub akan otomatis melakukan kompilasi (build) dan mengunggah hasilnya ke branch baru bernama **`gh-pages`**.
 
----
-
-## 1. Penanganan Gemini API Key yang Aman dan Privat 🔒
-
-Pada platform hosting statis seperti GitHub Pages, mengompilasi API Key sensitif ke dalam file JavaScript bawaan berisiko tinggi bocor ke publik. Sebagai solusinya, kami telah menambahkan fitur **Local & Secure API Key** pada aplikasi:
-* **Tidak perlu memasukkan API Key di environment variable build.**
-* Siswa atau Guru dapat membuka menu **Settings (Pengaturan)** di bilah sisi kiri pada aplikasi yang sudah live.
-* Masukkan **Gemini API Key** Anda secara pribadi di form yang tersedia.
-* Key tersebut akan disimpan dengan sangat aman di penyimpanan lokal (**LocalStorage**) pada browser perangkat pribadi masing-masing (tidak akan pernah dikirim ke server/database publik mana pun).
+Berikut adalah 3 langkah mudah untuk mengaktifkannya di akun GitHub Anda:
 
 ---
 
-## 2. Cara Deploy Menggunakan GitHub Actions (Sangat Direkomendasikan) ⚙️
+## Langkah 1: Jalankan GitHub Action Terlebih Dahulu ⚙️
 
-Metode terbaik untuk mengunggah aplikasi ke GitHub Pages secara otomatis setiap kali Anda melakukan push kode adalah dengan membuat workflow GitHub Actions:
-
-1. Di dalam repositori GitHub Anda, buat folder baru `.github/workflows/` (jika belum ada).
-2. Buat file bernama `deploy.yml` di dalam folder tersebut dan masukkan kode berikut:
-
-```yaml
-name: Deploy to GitHub Pages
-
-on:
-  push:
-    branches:
-      - main # Ganti dengan nama branch utama Anda (misal: master)
-
-permissions:
-  contents: write
-
-jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-size: 18
-          cache: 'npm'
-
-      - name: Install Dependencies
-        run: npm ci
-
-      - name: Build Application
-        run: npm run build
-
-      - name: Deploy to GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@v4
-        with:
-          folder: dist
-          branch: gh-pages
-```
-
-3. Lakukan **Commit & Push** file ini ke repositori Anda.
-4. Pergi ke tab **Settings** di repositori GitHub Anda -> **Pages** -> Ubah **Source** menjadi **Deploy from a branch**, lalu arahkan branch ke **gh-pages** dan folder ke `/ (root)`.
-5. Selesai! Situs Anda akan langsung live dalam beberapa menit.
+1. **Unduh berkas proyek terbaru** dari AI Studio ini (atau lakukan commit & push perubahan berkas `.github/workflows/deploy.yml` ini ke repositori Anda).
+2. Sekali Anda mengunggah kode baru ini ke branch `main`, silakan buka tab **Actions** di repositori GitHub Anda.
+3. Anda akan melihat aksi otomatis bernama **"Deploy to GitHub Pages"** sedang berjalan.
+4. Tunggu sekitar 1-2 menit hingga proses selesai dan memunculkan tanda **centang hijau (Success)**.
+5. Proses ini **akan otomatis membuat branch baru di repositori Anda bernama `gh-pages`**.
 
 ---
 
-## 3. Cara Deploy Manual Melalui Perangkat Lokal 💻
+## Langkah 2: Atur Pilihan Branch di GitHub Pages Anda 🌐
 
-Jika Anda ingin melakukan build dan push dari terminal komputer lokal Anda secara langsung:
-
-1. Pastikan Anda menginstal package pembantu `gh-pages` sebagai devDependency di folder proyek Anda:
-   ```bash
-   npm install gh-pages --save-dev
-   ```
-2. Tambahkan script baru di dalam berkas `package.json` Anda (pada bagian `"scripts"`):
-   ```json
-   "predeploy": "npm run build",
-   "deploy": "gh-pages -d dist"
-   ```
-3. Hubungkan folder lokal Anda dengan repositori GitHub Anda di komputer:
-   ```bash
-   git remote add origin https://github.com/username-anda/nama-repo-anda.git
-   ```
-4. Jalankan perintah deploy:
-   ```bash
-   npm run deploy
-   ```
-5. Protokol `gh-pages` akan mengompilasi folder `dist` secara otomatis dan mengunggahnya langsung ke branch `gh-pages` di repositori GitHub Anda.
+Setelah proses pada Langkah 1 selesai (berwarna hijau):
+1. Masuk ke halaman **Settings** (Pengaturan) repositori GitHub Anda.
+2. Di bilah navigasi sebelah kiri, pilih menu **Pages**.
+3. Di bagian **Build and deployment** (Pengaturan Sumber Build):
+   * Pastikan **Source** tetap disetel ke **"Deploy from a branch"** (jangan diubah).
+   * Pada pilihan **Branch**, klik dropdown yang sebelumnya bertuliskan `main`.
+   * **Pilih branch `gh-pages`** 👈 *(Sekarang pilihan ini sudah muncul karena berhasil dibuat otomatis oleh Actions!)*
+   * Pastikan foldernya diatur ke `/ (root)`.
+4. Klik tombol **Save** (Simpan).
+5. Selesai! Website Anda akan langsung segar dan tampil sempurna tanpa layar putih dalam hitungan detik.
 
 ---
 
-## 4. Konfigurasi Lanjutan (Vite Base Path) 🛠️
+## Langkah 3: Penanganan Gemini API Key yang Aman dan Privat 🔒
 
-* Berkas `vite.config.ts` Anda saat ini telah diatur ke `base: './'`.
-* Ini adalah pengaturan optimal yang memungkinkan aplikasi Anda berjalan dengan sempurna baik di URL utama (seperti `https://domain-anda.com/`) maupun di sub-direktori folder GitHub Pages (seperti `https://username.github.io/nama-repositori/`). Anda tidak perlu mengubah berkas konfigurasi aset lagi!
+Agar fungsionalitas cerdas (AI Tutor atau bimbingan AI) tetap aktif di GitHub Pages tanpa membocorkan API Key sensitif Anda ke publik:
+1. Buka situs yang sudah live (misalnya: `https://vidirect.github.io/esemkasauba/`).
+2. Masuk ke halaman dengan akun Anda (Guru/Siswa).
+3. Buka menu **Settings (Pengaturan)** di bilah navigasi sebelah kiri.
+4. Di bagian **Gemini AI (GitHub Pages)**, tempelkan **Gemini API Key** pribadi Anda secara langsung.
+5. Kunci ini disimpan dengan sangat aman di **LocalStorage** browser lokal Anda (tidak akan pernah diunggah atau dibocorkan ke server eksternal apa pun).
+
+---
+
+## Catatan Penting Mengenai Keamanan Firebase 🔐
+* **Tentang Peringatan Secret Scanning GitHub (Google API Key):** 
+  GitHub mendeteksi kode API Key Firebase di berkas `firebase-applet-config.json` Anda sebagai kebocoran rahasia publik.
+  **Ini sangat aman untuk diabaikan.** Pada aplikasi web client-side (SPA), Firebase Config (termasuk API Key) secara teknis memang bersifat publik agar halaman web browser Anda dapat berkomunikasi dengan database Firestore. Keamanan data Anda sepenuhnya dilindungi oleh **Firestore Security Rules** yang membatasi hak akses, bukan dari kerahasiaan API Key Firebase tersebut. Anda dapat menutup/menandai peringatan tersebut di GitHub dengan aman.

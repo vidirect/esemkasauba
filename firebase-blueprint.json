@@ -1,0 +1,161 @@
+{
+  "entities": {
+    "Student": {
+      "title": "Student",
+      "description": "Student profile and competence data.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "avatar": { "type": "string", "format": "uri" },
+        "competence": {
+          "type": "object",
+          "properties": {
+            "computationalThinking": { "type": "number" },
+            "ictLiteracy": { "type": "number" },
+            "projectManagement": { "type": "number" },
+            "collaboration": { "type": "number" }
+          }
+        },
+        "portfolio": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["id", "name", "email"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "PjBL project details and stages.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "currentStage": { "type": "string", "enum": ["Orientation", "Design", "Development", "Publication"] },
+        "team": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "status": { "type": "string", "enum": ["active", "completed"] },
+        "progress": { "type": "number" },
+        "dueDate": { "type": "string", "format": "date" },
+        "stages": {
+          "type": "object",
+          "properties": {
+            "Orientation": { "$ref": "ProjectStage" },
+            "Design": { "$ref": "ProjectStage" },
+            "Development": { "$ref": "ProjectStage" },
+            "Publication": { "$ref": "ProjectStage" }
+          }
+        }
+      },
+      "required": ["id", "title", "currentStage"]
+    },
+    "ProjectStage": {
+      "title": "ProjectStage",
+      "description": "Details for a specific stage of a project.",
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["pending", "in-progress", "completed"] },
+        "artifacts": { "type": "array", "items": { "type": "string" } },
+        "reflection": { "type": "string" },
+        "feedback": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "Artifact": {
+      "title": "Artifact",
+      "description": "Digital artifact produced in a project.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "type": "string" },
+        "projectId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "thumbnail": { "type": "string", "format": "uri" },
+        "url": { "type": "string", "format": "uri" }
+      },
+      "required": ["id", "title", "projectId", "studentId"]
+    },
+    "Discussion": {
+      "title": "Discussion",
+      "description": "Project-based discussion post.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "projectId": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "content": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "likes": { "type": "number" }
+      },
+      "required": ["id", "projectId", "authorId", "content"]
+    },
+    "DirectMessage": {
+      "title": "DirectMessage",
+      "description": "Direct message between students, teachers, and admins.",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderAvatar": { "type": "string", "format": "uri" },
+        "receiverId": { "type": "string" },
+        "receiverName": { "type": "string" },
+        "message": { "type": "string" },
+        "chatKey": { "type": "string" },
+        "mediaUrl": { "type": "string", "format": "uri" },
+        "mediaType": { "type": "string", "enum": ["image", "video", "audio", "link"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderId", "senderName", "receiverId", "receiverName", "message", "chatKey"]
+    },
+    "WeeklyChallenge": {
+      "title": "WeeklyChallenge",
+      "description": "Weekly challenge or teacher-given task assigned to students.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "creatorName": { "type": "string" },
+        "type": { "type": "string", "enum": ["networking", "servers", "pjbl", "programming", "other"] },
+        "status": { "type": "string", "enum": ["new", "active", "completed", "archived"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "source": { "type": "string" },
+        "difficulty": { "type": "string" }
+      },
+      "required": ["id", "title", "description", "creatorId", "creatorName", "type", "status"]
+    }
+  },
+  "firestore": {
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Student profiles."
+    },
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Project details."
+    },
+    "/discussions/{discussionId}": {
+      "schema": "Discussion",
+      "description": "Global discussions."
+    },
+    "/artifacts/{artifactId}": {
+      "schema": "Artifact",
+      "description": "Digital artifacts."
+    },
+    "/direct_messages/{messageId}": {
+      "schema": "DirectMessage",
+      "description": "Direct chat messages."
+    },
+    "/weekly_challenges/{challengeId}": {
+      "schema": "WeeklyChallenge",
+      "description": "Weekly challenges and randomized teacher assignments."
+    }
+  }
+}

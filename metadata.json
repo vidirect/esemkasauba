@@ -1,0 +1,8 @@
+{
+  "name": "PjBL Digital Classroom",
+  "description": "An improved educational platform based on Project-Based Learning (PjBL) to enhance Information Technology competence, featuring staged projects, real-time dashboards, and digital portfolios.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

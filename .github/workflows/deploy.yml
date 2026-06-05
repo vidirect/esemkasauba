@@ -3,7 +3,7 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches:
-      - main # Ganti dengan master jika branch utama Anda bernama master
+      - main # Ganti dengan nama branch utama Anda (misal: master)
 
 permissions:
   contents: write
@@ -18,11 +18,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-size: 18
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build Application
         run: npm run build
@@ -31,4 +31,4 @@ jobs:
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           folder: dist
-          branch: gh-pages # Hasil build akan dikirim ke branch terpisah ini
+          branch: gh-pages

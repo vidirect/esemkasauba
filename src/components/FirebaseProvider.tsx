@@ -71,10 +71,33 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
         studentUnsubscribe = onSnapshot(doc(db, 'students', user.uid), async (snapshot) => {
           if (snapshot.exists()) {
             const studentData = snapshot.data() as Student;
+            let needsUpdate = false;
+            const updatedFields: Partial<Student> = {};
+
             // Force admin role for the specific user if not already set
             if (user.email === 'vikry.thu@gmail.com' && studentData.role !== 'admin') {
-              updateDoc(doc(db, 'students', user.uid), { role: 'admin' });
+              studentData.role = 'admin';
+              studentData.profileSetup = true;
+              updatedFields.role = 'admin';
+              updatedFields.profileSetup = true;
+              needsUpdate = true;
             }
+
+            if (studentData.profileSetup === undefined) {
+              if (studentData.role === 'admin' || studentData.role === 'teacher' || studentData.className || studentData.gradeLevel) {
+                studentData.profileSetup = true;
+                updatedFields.profileSetup = true;
+              } else {
+                studentData.profileSetup = false;
+                updatedFields.profileSetup = false;
+              }
+              needsUpdate = true;
+            }
+
+            if (needsUpdate) {
+              updateDoc(doc(db, 'students', user.uid), updatedFields);
+            }
+
             setStudent(studentData);
             setLoading(false);
           } else {
@@ -101,6 +124,7 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
               email: user.email || '',
               avatar: user.photoURL || `https://picsum.photos/seed/${user.uid}/40/40`,
               role: assignedRole,
+              profileSetup: false,
               competence: {
                 computationalThinking: 0,
                 ictLiteracy: 0,

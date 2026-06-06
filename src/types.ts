@@ -31,6 +31,7 @@ export interface Project {
     };
   };
   kit: ProjectKit;
+  targetClass?: string;
 }
 
 export interface Certificate {
@@ -63,6 +64,13 @@ export interface Student {
   portfolio: string[]; // List of artifact IDs
   certificates?: Certificate[];
   role?: 'student' | 'teacher' | 'admin';
+  profileSetup?: boolean;
+  teacherPosition?: string;
+  teacherSubject?: string;
+  gradeLevel?: 'X' | 'XI' | 'XII';
+  major?: string;
+  classNumber?: string;
+  className?: string; // e.g. "XI TJKT 2"
   phone?: string;
   whatsapp?: string;
   instagram?: string;

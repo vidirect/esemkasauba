@@ -12,6 +12,7 @@ import Portfolio from './components/Portfolio';
 import Collaboration from './components/Collaboration';
 import Settings from './components/Settings';
 import AdminPanel from './components/AdminPanel';
+import ProfileSetup from './components/ProfileSetup';
 import { motion, AnimatePresence } from 'motion/react';
 import { FirebaseProvider, useFirebase } from './components/FirebaseProvider';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -30,7 +31,7 @@ const menuItems = [
 const cn = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ');
 
 function AppContent() {
-  const { user, loading, signIn, isSigningIn, isAdmin, isTeacher, signOut } = useFirebase();
+  const { user, student, loading, signIn, isSigningIn, isAdmin, isTeacher, signOut } = useFirebase();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [adminSubTab, setAdminSubTab] = useState<'projects' | 'kits' | 'students' | 'acl' | 'challenges'>('projects');
@@ -83,6 +84,11 @@ function AppContent() {
         </motion.div>
       </div>
     );
+  }
+
+  // Intercept if profile setup is not completed
+  if (student && student.profileSetup === false) {
+    return <ProfileSetup studentId={user.uid} userEmail={user.email || ''} />;
   }
 
   const filteredMenuItems = menuItems.filter(item => {

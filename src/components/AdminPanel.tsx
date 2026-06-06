@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Database, 
+  ArrowLeftRight,
   Plus, 
   Trash2, 
   Layout, 
@@ -56,6 +57,7 @@ export default function AdminPanel({ activeSubTab: externalActiveSubTab, setActi
   const activeSubTab = externalActiveSubTab || localActiveSubTab;
   const setActiveSubTab = (externalSetActiveSubTab as any) || setLocalActiveSubTab;
   const [roleFilter, setRoleFilter] = useState<'student' | 'teacher' | 'admin'>('student');
+  const [adminClassFilter, setAdminClassFilter] = useState('All');
   const [students, setStudents] = useState<Student[]>([]);
   const [allowedUsers, setAllowedUsers] = useState<AllowedUser[]>([]);
   const [showKitModal, setShowKitModal] = useState(false);
@@ -85,6 +87,27 @@ export default function AdminPanel({ activeSubTab: externalActiveSubTab, setActi
   });
 
   const [newAllowed, setNewAllowed] = useState({ email: '', role: 'student' as const });
+
+  // Move class modal state
+  const [showMoveClassModal, setShowMoveClassModal] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [moveClassForm, setMoveClassForm] = useState({
+    gradeLevel: 'X' as 'X' | 'XI' | 'XII',
+    major: 'TJKT',
+    customMajor: '',
+    classNumber: '1'
+  });
+
+  // Edit teacher modal state
+  const [showEditTeacherModal, setShowEditTeacherModal] = useState(false);
+  const [selectedTeacher, setSelectedTeacher] = useState<Student | null>(null);
+  const [editTeacherForm, setEditTeacherForm] = useState({
+    teacherPosition: '',
+    customTeacherPosition: '',
+    teacherSubject: ''
+  });
+
+  const adminClasses = Array.from(new Set(students.filter(s => (s.role || 'student') === 'student' && s.className).map(s => s.className as string))).sort();
 
   // Form for new Kit
   const [newKit, setNewKit] = useState<ProjectKit>({
@@ -314,11 +337,15 @@ export default function AdminPanel({ activeSubTab: externalActiveSubTab, setActi
         workflow: newKit.workflow.filter(w => w.trim() !== ''),
         rubric: newKit.rubric.filter(r => r.trim() !== ''),
       };
-      await addDoc(collection(db, 'kits'), kitToSave);
+      if (id) {
+        await updateDoc(doc(db, 'kits', id), kitToSave);
+      } else {
+        await addDoc(collection(db, 'kits'), kitToSave);
+      }
       setShowKitModal(false);
       setNewKit({ title: '', description: '', workflow: [''], rubric: [''], examples: [], references: [] });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, 'kits');
+    } catch (err: any) {
+      handleFirestoreError(err, newKit.id ? OperationType.UPDATE : OperationType.CREATE, newKit.id ? `kits/${newKit.id}` : 'kits');
     } finally {
       setActionLoading(null);
     }
@@ -372,6 +399,57 @@ export default function AdminPanel({ activeSubTab: externalActiveSubTab, setActi
       await updateDoc(doc(db, 'students', userId), { role: newRole });
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `students/${userId}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleMoveClass = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStudent) return;
+    setActionLoading('moving-class');
+    try {
+      const finalMajor = moveClassForm.major === 'other' ? moveClassForm.customMajor : moveClassForm.major;
+      if (!finalMajor || finalMajor.trim() === '') {
+        throw new Error('Silakan isi nama jurusan.');
+      }
+      const newGradeLevel = moveClassForm.gradeLevel;
+      const newMajor = finalMajor.toUpperCase().trim();
+      const newClassNumber = moveClassForm.classNumber;
+      const newClassName = `${newGradeLevel} ${newMajor} ${newClassNumber}`;
+
+      await updateDoc(doc(db, 'students', selectedStudent.id), {
+        gradeLevel: newGradeLevel,
+        major: newMajor,
+        classNumber: newClassNumber,
+        className: newClassName
+      });
+      setShowMoveClassModal(false);
+      setSelectedStudent(null);
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, `students/${selectedStudent.id}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleEditTeacher = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTeacher) return;
+    setActionLoading('edit-teacher');
+    try {
+      const finalPosition = editTeacherForm.teacherPosition === 'other' ? editTeacherForm.customTeacherPosition : editTeacherForm.teacherPosition;
+      if (!finalPosition || finalPosition.trim() === '') {
+        throw new Error('Silakan isi jabatan guru.');
+      }
+      await updateDoc(doc(db, 'students', selectedTeacher.id), {
+        teacherPosition: finalPosition.trim(),
+        teacherSubject: editTeacherForm.teacherSubject.trim() || 'Teknologi Informasi'
+      });
+      setShowEditTeacherModal(false);
+      setSelectedTeacher(null);
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, `students/${selectedTeacher.id}`);
     } finally {
       setActionLoading(null);
     }
@@ -608,40 +686,67 @@ export default function AdminPanel({ activeSubTab: externalActiveSubTab, setActi
 
         {activeSubTab === 'students' && (
           <div className="bg-white rounded-[40px] shadow-sm border border-gray-100 overflow-hidden">
-            <div className="p-8 border-b border-gray-100 bg-gray-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <h3 className="text-xl font-bold text-gray-900">Direktori Pengguna Terdaftar</h3>
-                <p className="text-xs text-gray-500 mt-1">Daftar pengguna dengan otorisasi akses platform</p>
-              </div>
-              
-              {/* Filter Peran - Daftar Terpisah */}
-              <div className="w-full md:w-auto md:min-w-[320px]">
-                <div className="grid grid-cols-3 bg-gray-200/60 p-0.5 sm:p-1 rounded-2xl border border-gray-200 gap-0.5 sm:gap-1">
-                  {(['student', 'teacher', 'admin'] as const).map(role => (
-                    <button
-                      key={role}
-                      onClick={() => setRoleFilter(role)}
-                      className={`py-2 px-1 rounded-xl text-[10px] sm:text-xs font-bold transition-all capitalize whitespace-nowrap truncate text-center cursor-pointer ${
-                        roleFilter === role 
-                          ? 'bg-white text-indigo-700 shadow-sm font-black' 
-                          : 'text-gray-500 hover:text-gray-800'
-                      }`}
-                    >
-                      {role === 'student' ? 'Siswa' : role === 'teacher' ? 'Guru' : 'Admin'} 
-                      <span className="ml-0.5 text-[9px] opacity-75 font-semibold">
-                        ({students.filter(x => (x.role || 'student') === role).length})
-                      </span>
-                    </button>
-                  ))}
+              <div className="p-8 border-b border-gray-100 bg-gray-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Direktori Pengguna Terdaftar</h3>
+                  <p className="text-xs text-gray-500 mt-1">Daftar pengguna dengan otorisasi akses platform</p>
+                </div>
+                
+                <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
+                  {roleFilter === 'student' && adminClasses.length > 0 && (
+                    <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap">Filter Kelas:</span>
+                      <select
+                        value={adminClassFilter}
+                        onChange={e => setAdminClassFilter(e.target.value)}
+                        className="py-2.5 px-3 bg-gray-100 hover:bg-gray-200 border-none rounded-xl text-xs font-bold outline-none cursor-pointer text-gray-700 w-full sm:w-36 focus:ring-2 focus:ring-indigo-500/10"
+                      >
+                        <option value="All">Semua Kelas</option>
+                        {adminClasses.map(cls => (
+                          <option key={cls} value={cls}>{cls}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Filter Peran - Daftar Terpisah */}
+                  <div className="w-full sm:w-auto md:min-w-[320px]">
+                    <div className="grid grid-cols-3 bg-gray-200/60 p-0.5 sm:p-1 rounded-2xl border border-gray-200 gap-0.5 sm:gap-1">
+                      {(['student', 'teacher', 'admin'] as const).map(role => (
+                        <button
+                          key={role}
+                          onClick={() => {
+                            setRoleFilter(role);
+                            setAdminClassFilter('All'); // Reset class filter when changing roles
+                          }}
+                          className={`py-2 px-1 rounded-xl text-[10px] sm:text-xs font-bold transition-all capitalize whitespace-nowrap truncate text-center cursor-pointer ${
+                            roleFilter === role 
+                              ? 'bg-white text-indigo-700 shadow-sm font-black' 
+                              : 'text-gray-500 hover:text-gray-800'
+                          }`}
+                        >
+                          {role === 'student' ? 'Siswa' : role === 'teacher' ? 'Guru' : 'Admin'} 
+                          <span className="ml-0.5 text-[9px] opacity-75 font-semibold">
+                            ({students.filter(x => (x.role || 'student') === role).length})
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="divide-y divide-gray-100">
-              {students.filter(s => (s.role || 'student') === roleFilter).map(s => {
-                const avgComp = Math.round(Object.values(s.competence || {}).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0) / 6);
-                return (
-                  <div key={s.id} className="p-6 flex flex-col lg:flex-row lg:items-center justify-between hover:bg-gray-50 transition-colors gap-6">
+              <div className="divide-y divide-gray-100">
+                {students
+                  .filter(s => (s.role || 'student') === roleFilter)
+                  .filter(s => {
+                    if (roleFilter !== 'student' || adminClassFilter === 'All') return true;
+                    return s.className === adminClassFilter;
+                  })
+                  .map(s => {
+                    const avgComp = Math.round(Object.values(s.competence || {}).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0) / 6);
+                    return (
+                      <div key={s.id} className="p-6 flex flex-col lg:flex-row lg:items-center justify-between hover:bg-gray-50 transition-colors gap-6">
                     <div className="flex items-start gap-5 flex-1 min-w-0">
                       <img src={s.avatar} alt={s.name} className="w-12 h-12 rounded-2xl object-cover shrink-0" referrerPolicy="no-referrer" />
                       <div className="min-w-0 flex-1">
@@ -653,6 +758,21 @@ export default function AdminPanel({ activeSubTab: externalActiveSubTab, setActi
                           }`}>
                             {s.role || 'student'}
                           </span>
+                          {(s.role === 'student' || !s.role) && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-50 text-indigo-700 tracking-wide shrink-0 border border-indigo-100/50">
+                              Kelas: {s.className || 'Belum Diatur'}
+                            </span>
+                          )}
+                          {s.role === 'teacher' && (
+                            <>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-50 text-blue-700 tracking-wide shrink-0 border border-blue-100/50">
+                                Jabatan: {s.teacherPosition || 'Guru Mata Pelajaran'}
+                              </span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-50 text-emerald-700 tracking-wide shrink-0 border border-emerald-100/50">
+                                Mapel: {s.teacherSubject || 'Teknologi Informasi'}
+                              </span>
+                            </>
+                          )}
                         </div>
                         <p className="text-xs text-gray-400 mt-0.5 truncate">{s.email}</p>
                         {s.bio && <p className="text-xs text-gray-500 mt-1 leading-relaxed line-clamp-2 max-w-xl italic">"{s.bio}"</p>}
@@ -742,6 +862,46 @@ export default function AdminPanel({ activeSubTab: externalActiveSubTab, setActi
                             title="Award Certificate"
                           >
                             <Award size={18} />
+                          </button>
+                        )}
+                        {(isAdmin || isTeacher) && (roleFilter === 'student' || s.role === 'student' || !s.role) && (
+                          <button 
+                            onClick={() => {
+                              setSelectedStudent(s);
+                              const currentGrade = s.gradeLevel || 'X';
+                              const currentMajor = s.major || 'TJKT';
+                              const currentClassNumber = s.classNumber || '1';
+                              setMoveClassForm({
+                                gradeLevel: currentGrade,
+                                major: ['TJKT', 'RPL', 'DKV', 'AKL', 'MP', 'TITL', 'TP'].includes(currentMajor) ? currentMajor : 'other',
+                                customMajor: ['TJKT', 'RPL', 'DKV', 'AKL', 'MP', 'TITL', 'TP'].includes(currentMajor) ? '' : currentMajor,
+                                classNumber: currentClassNumber
+                              });
+                              setShowMoveClassModal(true);
+                            }}
+                            className="p-2 text-amber-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all"
+                            title="Pindahkan Kelas"
+                          >
+                            <ArrowLeftRight size={18} />
+                          </button>
+                        )}
+                        {isAdmin && s.role === 'teacher' && (
+                          <button 
+                            onClick={() => {
+                              setSelectedTeacher(s);
+                              const pos = s.teacherPosition || 'Guru Mata Pelajaran';
+                              const isPreset = ['Guru Mata Pelajaran', 'Guru Produktif TJKT / RPL / IT', 'Wali Kelas', 'Kepala Program Keahlian (Kaprog)', 'Wakil Kepala Sekolah (Waka)', 'Guru BK / Konselor', 'Kepala Sekolah'].includes(pos);
+                              setEditTeacherForm({
+                                teacherPosition: isPreset ? pos : 'other',
+                                customTeacherPosition: isPreset ? '' : pos,
+                                teacherSubject: s.teacherSubject || 'Teknologi Informasi'
+                              });
+                              setShowEditTeacherModal(true);
+                            }}
+                            className="p-2 text-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                            title="Atur Jabatan & Mapel Guru"
+                          >
+                            <Pencil size={18} />
                           </button>
                         )}
                         {isAdmin && (
@@ -944,13 +1104,34 @@ export default function AdminPanel({ activeSubTab: externalActiveSubTab, setActi
                       <p className="text-sm text-gray-500 line-clamp-1">{kit.description}</p>
                     </div>
                   </div>
-                  <button 
-                    onClick={() => setConfirmDelete({ id: kit.id!, type: 'kit' })}
-                    disabled={!!actionLoading}
-                    className="p-3 text-red-600 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-50"
-                  >
-                    <Trash2 size={20} />
-                  </button>
+                  <div className="flex gap-2 shrink-0">
+                    <button 
+                      onClick={() => {
+                        setNewKit({
+                          id: kit.id,
+                          title: kit.title,
+                          description: kit.description,
+                          workflow: kit.workflow && kit.workflow.length > 0 ? kit.workflow : [''],
+                          rubric: kit.rubric && kit.rubric.length > 0 ? kit.rubric : [''],
+                          examples: kit.examples || [],
+                          references: kit.references || []
+                        });
+                        setShowKitModal(true);
+                      }}
+                      className="p-3 text-amber-500 hover:bg-amber-50 rounded-xl transition-colors"
+                      title="Ubah Kit Mata Pelajaran"
+                    >
+                      <Pencil size={20} />
+                    </button>
+                    <button 
+                      onClick={() => setConfirmDelete({ id: kit.id!, type: 'kit' })}
+                      disabled={!!actionLoading}
+                      className="p-3 text-red-600 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-50"
+                      title="Hapus Kit"
+                    >
+                      <Trash2 size={20} />
+                    </button>
+                  </div>
                 </div>
               ))}
               {kits.length === 0 && (
@@ -1018,6 +1199,195 @@ export default function AdminPanel({ activeSubTab: externalActiveSubTab, setActi
                   className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-100 disabled:opacity-50"
                 >
                   {actionLoading === 'issuing-cert' ? 'Mengirim...' : 'Berikan Sertifikat'}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {showMoveClassModal && selectedStudent && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white w-full max-w-md rounded-[32px] shadow-2xl p-8 space-y-6"
+            >
+              <div className="flex justify-between items-center">
+                <h3 className="text-xl font-bold text-gray-900">Pindahkan Kelas Siswa</h3>
+                <button onClick={() => { setShowMoveClassModal(false); setSelectedStudent(null); }} className="p-2 hover:bg-gray-100 rounded-lg"><X size={20} /></button>
+              </div>
+              <div className="bg-indigo-50 p-4 rounded-2xl text-xs text-indigo-700 leading-relaxed">
+                <strong>Informasi:</strong> Pindahkan siswa ini dari kelas awal ke kelas tujuan untuk meningkatkan keakuratan rincian data pembelajaran berbasis proyek kelompok.
+              </div>
+              
+              <div className="border border-gray-100 rounded-2xl p-4 bg-gray-50/50 space-y-1">
+                <p className="text-[10px] font-bold text-gray-400 tracking-wider uppercase">Nama Siswa</p>
+                <p className="text-sm font-bold text-gray-900">{selectedStudent.name}</p>
+                <div className="flex justify-between text-xs text-gray-500 pt-1 border-t border-gray-100 mt-2">
+                  <span>Kelas Awal:</span>
+                  <span className="font-bold text-pink-600">{selectedStudent.className || 'Belum Diatur'}</span>
+                </div>
+              </div>
+
+              <form onSubmit={handleMoveClass} className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 tracking-widest uppercase">Tingkatan Kelas</label>
+                  <select 
+                    required
+                    value={moveClassForm.gradeLevel}
+                    onChange={e => setMoveClassForm({...moveClassForm, gradeLevel: e.target.value as 'X' | 'XI' | 'XII'})}
+                    className="w-full p-4 bg-gray-50 border-none rounded-2xl outline-none text-sm font-semibold"
+                  >
+                    <option value="X">Kelas X (Sepuluh)</option>
+                    <option value="XI">Kelas XI (Sebelas)</option>
+                    <option value="XII">Kelas XII (Dua Belas)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 tracking-widest uppercase">Jurusan Kejuruan</label>
+                  <select 
+                    required
+                    value={moveClassForm.major}
+                    onChange={e => setMoveClassForm({...moveClassForm, major: e.target.value})}
+                    className="w-full p-4 bg-gray-50 border-none rounded-2xl outline-none text-sm font-semibold"
+                  >
+                    <option value="TJKT">TJKT - Teknik Jaringan Komputer & Telekomunikasi</option>
+                    <option value="RPL">RPL - Rekayasa Perangkat Lunak</option>
+                    <option value="DKV">DKV - Desain Komunikasi Visual</option>
+                    <option value="AKL">AKL - Akuntansi & Keuangan Lembaga</option>
+                    <option value="MP">MP - Manajemen Perkantoran</option>
+                    <option value="TITL">TITL - Teknik Instalasi Tenaga Listrik</option>
+                    <option value="TP">TP - Teknik Pemesinan</option>
+                    <option value="other">Jurusan Lainnya (Ketik Manual)...</option>
+                  </select>
+                </div>
+
+                {moveClassForm.major === 'other' && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 tracking-widest uppercase">Nama Jurusan (Singkatan)</label>
+                    <input 
+                      required
+                      value={moveClassForm.customMajor}
+                      onChange={e => setMoveClassForm({...moveClassForm, customMajor: e.target.value})}
+                      className="w-full p-4 bg-gray-50 border-none rounded-2xl outline-none text-sm placeholder:text-gray-300 uppercase"
+                      placeholder="Contoh: TO (Teknik Otomotif)"
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 tracking-widest uppercase">Nomor Rombel Kelas</label>
+                  <input 
+                    required
+                    value={moveClassForm.classNumber}
+                    onChange={e => setMoveClassForm({...moveClassForm, classNumber: e.target.value})}
+                    className="w-full p-4 bg-gray-50 border-none rounded-2xl outline-none text-sm"
+                    placeholder="Contoh: 1, 2, atau A, B"
+                  />
+                </div>
+
+                <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 flex justify-between items-center text-xs">
+                  <span className="text-amber-800 font-medium font-sans">Pratinjau Kelas Baru:</span>
+                  <span className="bg-amber-100 text-amber-950 font-black px-3 py-1 rounded-xl text-xs uppercase tracking-wide">
+                    {moveClassForm.gradeLevel} {moveClassForm.major === 'other' ? (moveClassForm.customMajor || '?') : moveClassForm.major} {moveClassForm.classNumber}
+                  </span>
+                </div>
+
+                <button 
+                  disabled={actionLoading === 'moving-class'}
+                  className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 disabled:opacity-50"
+                >
+                  {actionLoading === 'moving-class' ? 'Menyimpan...' : 'Simpan Perubahan & Pindahkan'}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {showEditTeacherModal && selectedTeacher && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white w-full max-w-md rounded-[32px] shadow-2xl p-8 space-y-6"
+            >
+              <div className="flex justify-between items-center">
+                <h3 className="text-xl font-bold text-gray-900">Atur Jabatan & Mapel Guru</h3>
+                <button onClick={() => { setShowEditTeacherModal(false); setSelectedTeacher(null); }} className="p-2 hover:bg-gray-100 rounded-lg"><X size={20} /></button>
+              </div>
+              <div className="bg-indigo-50 p-4 rounded-2xl text-xs text-indigo-700 leading-relaxed">
+                <strong>Informasi:</strong> Perubahan ini hanya akan mengubah data jabatan struktural dan spesialisasi pelajaran guru, bukan mengubah atau menghapus akun pengguna guru tersebut.
+              </div>
+              
+              <div className="border border-gray-100 rounded-2xl p-4 bg-gray-50/50 space-y-1">
+                <p className="text-[10px] font-bold text-gray-400 tracking-wider uppercase">Nama Guru</p>
+                <p className="text-sm font-bold text-gray-900">{selectedTeacher.name}</p>
+                <p className="text-xs text-gray-400 truncate">{selectedTeacher.email}</p>
+              </div>
+
+              <form onSubmit={handleEditTeacher} className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 tracking-widest uppercase">Jabatan Guru</label>
+                  <select 
+                    required
+                    value={editTeacherForm.teacherPosition}
+                    onChange={e => setEditTeacherForm({...editTeacherForm, teacherPosition: e.target.value})}
+                    className="w-full p-4 bg-gray-50 border-none rounded-2xl outline-none text-sm font-semibold"
+                  >
+                    <option value="Guru Mata Pelajaran">Guru Mata Pelajaran</option>
+                    <option value="Guru Produktif TJKT / RPL / IT">Guru Produktif TJKT / RPL / IT</option>
+                    <option value="Wali Kelas">Wali Kelas</option>
+                    <option value="Kepala Program Keahlian (Kaprog)">Kepala Program Keahlian (Kaprog)</option>
+                    <option value="Wakil Kepala Sekolah (Waka)">Wakil Kepala Sekolah (Waka)</option>
+                    <option value="Guru BK / Konselor">Guru BK / Konselor</option>
+                    <option value="Kepala Sekolah">Kepala Sekolah</option>
+                    <option value="other">Jabatan Lainnya (Ketik Manual)...</option>
+                  </select>
+                </div>
+
+                {editTeacherForm.teacherPosition === 'other' && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 tracking-widest uppercase">Tulis Jabatan Baru</label>
+                    <input 
+                      required
+                      value={editTeacherForm.customTeacherPosition}
+                      onChange={e => setEditTeacherForm({...editTeacherForm, customTeacherPosition: e.target.value})}
+                      className="w-full p-4 bg-gray-50 border-none rounded-2xl outline-none text-sm placeholder:text-gray-300"
+                      placeholder="Contoh: Kepala Tata Usaha, Ketua Komite"
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 tracking-widest uppercase">Mata Pelajaran Guru</label>
+                  <input 
+                    required
+                    value={editTeacherForm.teacherSubject}
+                    onChange={e => setEditTeacherForm({...editTeacherForm, teacherSubject: e.target.value})}
+                    className="w-full p-4 bg-gray-50 border-none rounded-2xl outline-none text-sm"
+                    placeholder="Contoh: Bahasa Indonesia, Olahraga, Matematika"
+                  />
+                </div>
+
+                <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 flex flex-col gap-1.5 text-xs text-emerald-800">
+                  <div className="flex justify-between">
+                    <span>Pratinjau Jabatan:</span>
+                    <strong className="uppercase">{editTeacherForm.teacherPosition === 'other' ? editTeacherForm.customTeacherPosition : editTeacherForm.teacherPosition}</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Pratinjau Mapel:</span>
+                    <strong className="uppercase">{editTeacherForm.teacherSubject || 'Belum Diisi'}</strong>
+                  </div>
+                </div>
+
+                <button 
+                  disabled={actionLoading === 'edit-teacher'}
+                  className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 disabled:opacity-50"
+                >
+                  {actionLoading === 'edit-teacher' ? 'Menyimpan...' : 'Simpan Perubahan'}
                 </button>
               </form>
             </motion.div>
@@ -1174,9 +1544,7 @@ export default function AdminPanel({ activeSubTab: externalActiveSubTab, setActi
               </form>
             </motion.div>
           </div>
-        )}
-
-        {showKitModal && (
+        )}        {showKitModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
@@ -1184,14 +1552,14 @@ export default function AdminPanel({ activeSubTab: externalActiveSubTab, setActi
               className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
             >
               <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-indigo-600 text-white">
-                <h3 className="text-xl font-bold">Create Project Kit</h3>
+                <h3 className="text-xl font-bold">{newKit.id ? 'Ubah Kit Mata Pelajaran' : 'Create Project Kit'}</h3>
                 <button onClick={() => setShowKitModal(false)} className="hover:bg-white/20 p-2 rounded-xl">
                   <X size={20} />
                 </button>
               </div>
               <form onSubmit={handleCreateKit} className="p-8 space-y-6">
                 <div className="space-y-2">
-                  <label className="text-sm font-bold text-gray-400 uppercase tracking-widest">Judul Template</label>
+                  <label className="text-sm font-bold text-gray-400 uppercase tracking-widest">Nama Mata Pelajaran / Judul Template</label>
                   <input 
                     required
                     type="text" 
@@ -1253,7 +1621,7 @@ export default function AdminPanel({ activeSubTab: externalActiveSubTab, setActi
                   disabled={!!actionLoading}
                   className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 disabled:opacity-50"
                 >
-                  {actionLoading === 'create-kit' ? 'Menyimpan...' : 'Buat System Kit'}
+                  {actionLoading === 'create-kit' ? 'Menyimpan...' : newKit.id ? 'Simpan Perubahan' : 'Buat System Kit'}
                 </button>
               </form>
             </motion.div>

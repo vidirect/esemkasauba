@@ -58,25 +58,11 @@ export default function Dashboard({ setActiveTab, setAdminSubTab }: DashboardPro
   });
 
   // States for Teacher Dashboard
-  const [teacherStats, setTeacherStats] = useState({
-    totalStudents: 0,
-    totalProjects: 0,
-    completedProjects: 0,
-    activeProjects: 0,
-    classAverageCT: 0,
-    classAverageICT: 0,
-    classAveragePM: 0,
-    classAverageCollab: 0,
-    classAverageApp: 0,
-    classAverageProg: 0,
-    stageBreakdown: {
-      Orientation: 0,
-      Design: 0,
-      Development: 0,
-      Publication: 0
-    },
-    loading: true,
-  });
+  const [selectedClassFilter, setSelectedClassFilter] = useState<string>('All');
+  const [rawTeacherStudents, setRawTeacherStudents] = useState<any[]>([]);
+  const [rawTeacherProjects, setRawTeacherProjects] = useState<any[]>([]);
+  const [teacherDetailSubTab, setTeacherDetailSubTab] = useState<'groups' | 'students'>('groups');
+  const [teacherLoading, setTeacherLoading] = useState(true);
 
   // Fetch student projects (original student path)
   useEffect(() => {
@@ -126,7 +112,7 @@ export default function Dashboard({ setActiveTab, setAdminSubTab }: DashboardPro
     fetchAdminData();
   }, [isAdmin]);
 
-  // Fetch teacher dashboard stats
+  // Fetch teacher dashboard raw data
   useEffect(() => {
     if (!isTeacher) return;
     const fetchTeacherData = async () => {
@@ -136,58 +122,89 @@ export default function Dashboard({ setActiveTab, setAdminSubTab }: DashboardPro
           getDocs(collection(db, 'projects')),
         ]);
 
-        const studentsList = studentsSnap.docs.map(d => d.data());
-        const projectsList = projectsSnap.docs.map(d => d.data());
+        const studentsList = studentsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const projectsList = projectsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-        const projectStudents = studentsList.filter((s: any) => s.role === 'student' || !s.role);
-        const totalStudents = projectStudents.length;
+        const studentUsers = studentsList.filter((s: any) => s.role === 'student' || !s.role);
 
-        const totalProjects = projectsList.length;
-        const completedProjects = projectsList.filter((p: any) => p.status === 'completed').length;
-        const activeProjects = projectsList.filter((p: any) => p.status === 'active' || !p.status).length;
-
-        // Calculate average competences
-        let ctSum = 0, ictSum = 0, pmSum = 0, colSum = 0, appSum = 0, progSum = 0;
-        projectStudents.forEach((s: any) => {
-          const comp = s.competence || {};
-          ctSum += comp.computationalThinking || 0;
-          ictSum += comp.ictLiteracy || 0;
-          pmSum += comp.projectManagement || 0;
-          colSum += comp.collaboration || 0;
-          appSum += comp.appUsage || 0;
-          progSum += comp.programming || 0;
-        });
-
-        // Stage breakdown
-        const stages = { Orientation: 0, Design: 0, Development: 0, Publication: 0 };
-        projectsList.forEach((p: any) => {
-          const stage = p.currentStage;
-          if (stage && stage in stages) {
-            stages[stage as 'Orientation' | 'Design' | 'Development' | 'Publication']++;
-          }
-        });
-
-        setTeacherStats({
-          totalStudents,
-          totalProjects,
-          completedProjects,
-          activeProjects,
-          classAverageCT: totalStudents > 0 ? Math.round(ctSum / totalStudents) : 0,
-          classAverageICT: totalStudents > 0 ? Math.round(ictSum / totalStudents) : 0,
-          classAveragePM: totalStudents > 0 ? Math.round(pmSum / totalStudents) : 0,
-          classAverageCollab: totalStudents > 0 ? Math.round(colSum / totalStudents) : 0,
-          classAverageApp: totalStudents > 0 ? Math.round(appSum / totalStudents) : 0,
-          classAverageProg: totalStudents > 0 ? Math.round(progSum / totalStudents) : 0,
-          stageBreakdown: stages,
-          loading: false,
-        });
+        setRawTeacherStudents(studentUsers);
+        setRawTeacherProjects(projectsList);
+        setTeacherLoading(false);
       } catch (err) {
         console.error("Error fetching teacher stats:", err);
-        setTeacherStats(prev => ({ ...prev, loading: false }));
+        setTeacherLoading(false);
       }
     };
     fetchTeacherData();
   }, [isTeacher]);
+
+  // Derived teacher classes list
+  const teacherClassesList = React.useMemo(() => {
+    const myClasses = student?.teacherClasses && student.teacherClasses.length > 0 ? student.teacherClasses : [];
+    const studentClasses = Array.from(new Set(rawTeacherStudents.map((s: any) => s.className).filter(Boolean))) as string[];
+    const combined = Array.from(new Set([...myClasses, ...studentClasses])).sort();
+    return combined;
+  }, [student, rawTeacherStudents]);
+
+  // Filtered students by class selection
+  const filteredTeacherStudents = React.useMemo(() => {
+    if (selectedClassFilter === 'All') return rawTeacherStudents;
+    return rawTeacherStudents.filter((s: any) => s.className === selectedClassFilter);
+  }, [selectedClassFilter, rawTeacherStudents]);
+
+  // Filtered projects by class selection
+  const filteredTeacherProjects = React.useMemo(() => {
+    if (selectedClassFilter === 'All') return rawTeacherProjects;
+    const classStudentIds = new Set(filteredTeacherStudents.map((s: any) => s.id));
+    return rawTeacherProjects.filter((p: any) => {
+      if (p.targetClass === selectedClassFilter) return true;
+      if (p.leaderId && classStudentIds.has(p.leaderId)) return true;
+      if (p.team && p.team.some((tid: string) => classStudentIds.has(tid))) return true;
+      return false;
+    });
+  }, [selectedClassFilter, rawTeacherProjects, filteredTeacherStudents]);
+
+  // Derived teacher stats
+  const teacherStats = React.useMemo(() => {
+    const totalStudents = filteredTeacherStudents.length;
+    const totalProjects = filteredTeacherProjects.length;
+    const completedProjects = filteredTeacherProjects.filter((p: any) => p.status === 'completed').length;
+    const activeProjects = filteredTeacherProjects.filter((p: any) => p.status === 'active' || !p.status).length;
+
+    let ctSum = 0, ictSum = 0, pmSum = 0, colSum = 0, appSum = 0, progSum = 0;
+    filteredTeacherStudents.forEach((s: any) => {
+      const comp = s.competence || {};
+      ctSum += comp.computationalThinking || 0;
+      ictSum += comp.ictLiteracy || 0;
+      pmSum += comp.projectManagement || 0;
+      colSum += comp.collaboration || 0;
+      appSum += comp.appUsage || 0;
+      progSum += comp.programming || 0;
+    });
+
+    const stages = { Orientation: 0, Design: 0, Development: 0, Publication: 0 };
+    filteredTeacherProjects.forEach((p: any) => {
+      const stage = p.currentStage;
+      if (stage && stage in stages) {
+        stages[stage as 'Orientation' | 'Design' | 'Development' | 'Publication']++;
+      }
+    });
+
+    return {
+      totalStudents,
+      totalProjects,
+      completedProjects,
+      activeProjects,
+      classAverageCT: totalStudents > 0 ? Math.round(ctSum / totalStudents) : 0,
+      classAverageICT: totalStudents > 0 ? Math.round(ictSum / totalStudents) : 0,
+      classAveragePM: totalStudents > 0 ? Math.round(pmSum / totalStudents) : 0,
+      classAverageCollab: totalStudents > 0 ? Math.round(colSum / totalStudents) : 0,
+      classAverageApp: totalStudents > 0 ? Math.round(appSum / totalStudents) : 0,
+      classAverageProg: totalStudents > 0 ? Math.round(progSum / totalStudents) : 0,
+      stageBreakdown: stages,
+      loading: teacherLoading,
+    };
+  }, [filteredTeacherStudents, filteredTeacherProjects, teacherLoading]);
 
   // Bypass early-return if user is Administrator or Teacher so they are never locked out of dashboard!
   if (!student && !isAdmin && !isTeacher) return null;
@@ -269,7 +286,7 @@ export default function Dashboard({ setActiveTab, setAdminSubTab }: DashboardPro
             {pieData.length > 0 ? (
               <div className="h-64 flex flex-col items-center justify-center">
                 <div className="h-48 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                     <PieChart>
                       <Pie
                         data={pieData}
@@ -423,15 +440,77 @@ export default function Dashboard({ setActiveTab, setAdminSubTab }: DashboardPro
 
     return (
       <div className="p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-6 md:space-y-8 bg-gray-50 min-h-screen pb-24 md:pb-8">
-        <header>
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600 shrink-0">
-              <GraduationCap size={20} />
+        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-gray-200/60 pb-6">
+          <div>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600 shrink-0">
+                <GraduationCap size={22} />
+              </div>
+              <div>
+                <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 tracking-tight">Dashboard Guru</h2>
+                <div className="flex flex-wrap items-center gap-2 mt-1">
+                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100">
+                    Mata Pelajaran: {student?.teacherSubject || 'Administrasi Infrastruktur Jaringan'}
+                  </span>
+                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-100">
+                    {student?.teacherPosition || 'Guru Pengampu'}
+                  </span>
+                </div>
+              </div>
             </div>
-            <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 tracking-tight">Dashboard Guru</h2>
           </div>
-          <p className="text-xs sm:text-sm text-gray-500 mt-1">Selamat datang, Pendidik. Pantau pencapaian belajar siswa, kelola bimbingan rubrik, dan kelayakan portofolio.</p>
+
+          <button
+            onClick={() => setActiveTab && setActiveTab('settings')}
+            className="self-start md:self-auto text-xs font-bold px-3.5 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-indigo-200 transition-all shadow-xs flex items-center gap-2 cursor-pointer"
+          >
+            <Settings size={14} className="text-indigo-600" />
+            Edit Mapel & Kelas Guru
+          </button>
         </header>
+
+        {/* Filter Kelas Bimbingan Guru */}
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-gray-200/80 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-gray-800">
+              <Users size={16} className="text-indigo-600" />
+              <span className="text-xs sm:text-sm font-bold">Pilih Kelas Bimbingan:</span>
+            </div>
+            <span className="text-[11px] text-gray-400 font-medium">
+              Menampilkan {selectedClassFilter === 'All' ? 'semua kelas' : `kelas ${selectedClassFilter}`}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setSelectedClassFilter('All')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                selectedClassFilter === 'All'
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              Semua Kelas ({rawTeacherStudents.length} Siswa)
+            </button>
+
+            {teacherClassesList.map(cls => {
+              const countInClass = rawTeacherStudents.filter((s: any) => s.className === cls).length;
+              return (
+                <button
+                  key={cls}
+                  onClick={() => setSelectedClassFilter(cls)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    selectedClassFilter === cls
+                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  Kelas {cls} ({countInClass} Murid)
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           {stats.map((stat, i) => {
@@ -442,7 +521,7 @@ export default function Dashboard({ setActiveTab, setAdminSubTab }: DashboardPro
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05 }}
-                className="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between"
+                className="bg-white p-5 sm:p-6 rounded-2xl shadow-xs border border-gray-100 flex flex-col justify-between"
               >
                 <div className="flex items-center gap-4">
                   <div className={`${stat.color} p-2.5 sm:p-3 rounded-xl text-white shrink-0`}>
@@ -462,13 +541,13 @@ export default function Dashboard({ setActiveTab, setAdminSubTab }: DashboardPro
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-8">
-          <div className="bg-white p-5 sm:p-6 md:p-8 rounded-2xl md:rounded-3xl shadow-sm border border-gray-100 lg:col-span-2">
+          <div className="bg-white p-5 sm:p-6 md:p-8 rounded-2xl md:rounded-3xl shadow-xs border border-gray-100 lg:col-span-2">
             <h3 className="text-sm sm:text-base font-bold text-gray-900 mb-4 sm:mb-6 flex items-center gap-2">
               <Award size={18} className="text-indigo-600" />
-              Rata-rata Kompetensi Siswa (%)
+              Rata-rata Kompetensi Siswa {selectedClassFilter === 'All' ? 'Seluruh Kelas' : `Kelas ${selectedClassFilter}`} (%)
             </h3>
             <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <BarChart data={competenceData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -480,14 +559,14 @@ export default function Dashboard({ setActiveTab, setAdminSubTab }: DashboardPro
             </div>
           </div>
 
-          <div className="bg-white p-5 sm:p-6 md:p-8 rounded-2xl md:rounded-3xl shadow-sm border border-gray-100 lg:col-span-1">
+          <div className="bg-white p-5 sm:p-6 md:p-8 rounded-2xl md:rounded-3xl shadow-xs border border-gray-100 lg:col-span-1">
             <h3 className="text-sm sm:text-base font-bold text-gray-900 mb-4 sm:mb-6 flex items-center gap-2">
               <TrendingUp size={18} className="text-indigo-600" />
-              Progres Tahapan Proyek Tim
+              Progres Tahapan Proyek Tim {selectedClassFilter === 'All' ? '' : `(${selectedClassFilter})`}
             </h3>
             <div className="h-80 select-none">
               {teacherStats.totalProjects > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                   <BarChart data={stageData} layout="vertical">
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                     <XAxis type="number" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -498,14 +577,164 @@ export default function Dashboard({ setActiveTab, setAdminSubTab }: DashboardPro
                 </ResponsiveContainer>
               ) : (
                 <div className="h-full flex items-center justify-center text-gray-400 text-sm">
-                  Belum ada tim proyek terdaftar.
+                  Belum ada tim proyek di kelas ini.
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        <div className="bg-white p-5 sm:p-6 md:p-8 rounded-2xl md:rounded-3xl shadow-sm border border-gray-100">
+        {/* Tabel Detail Progres Per Kelas & Per Murid */}
+        <div className="bg-white p-5 sm:p-6 md:p-8 rounded-2xl md:rounded-3xl shadow-xs border border-gray-100 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+            <div>
+              <h3 className="text-base sm:text-lg font-bold text-gray-900">
+                Monitoring Progres Detail {selectedClassFilter === 'All' ? 'Semua Kelas' : `Kelas ${selectedClassFilter}`}
+              </h3>
+              <p className="text-xs text-gray-500 mt-1">Tinjau perkembangan per kelompok proyek maupun progres pencapaian individu setiap murid.</p>
+            </div>
+
+            <div className="flex bg-gray-100 p-1 rounded-xl shrink-0 self-start sm:self-auto">
+              <button
+                onClick={() => setTeacherDetailSubTab('groups')}
+                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  teacherDetailSubTab === 'groups' ? 'bg-white text-indigo-600 shadow-xs' : 'text-gray-500 hover:text-gray-900'
+                }`}
+              >
+                Tim Proyek ({filteredTeacherProjects.length})
+              </button>
+              <button
+                onClick={() => setTeacherDetailSubTab('students')}
+                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  teacherDetailSubTab === 'students' ? 'bg-white text-indigo-600 shadow-xs' : 'text-gray-500 hover:text-gray-900'
+                }`}
+              >
+                Siswa Individu ({filteredTeacherStudents.length})
+              </button>
+            </div>
+          </div>
+
+          {teacherDetailSubTab === 'groups' ? (
+            <div>
+              {filteredTeacherProjects.length === 0 ? (
+                <div className="text-center py-10 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                  <Briefcase className="mx-auto text-gray-400 mb-2" size={32} />
+                  <p className="text-sm font-bold text-gray-700">Belum Ada Proyek di {selectedClassFilter === 'All' ? 'Sistem' : `Kelas ${selectedClassFilter}`}</p>
+                  <p className="text-xs text-gray-400 mt-1">Siswa di kelas ini dapat membuat proyek baru pada menu Proyek Saya.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filteredTeacherProjects.map((p: any) => {
+                    const isCompleted = p.status === 'completed';
+                    const memberCount = p.team ? p.team.length : 1;
+                    return (
+                      <div key={p.id} className="p-5 border border-gray-100 rounded-2xl bg-gray-50/50 hover:bg-white hover:border-indigo-200 transition-all flex flex-col justify-between space-y-4">
+                        <div>
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-100">
+                              {p.targetClass || selectedClassFilter || 'Umum'}
+                            </span>
+                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg ${
+                              isCompleted ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-amber-50 text-amber-700 border border-amber-100'
+                            }`}>
+                              {isCompleted ? 'Selesai' : `Tahap: ${p.currentStage || 'Orientation'}`}
+                            </span>
+                          </div>
+                          <h4 className="font-bold text-gray-900 text-sm sm:text-base mt-2">{p.title}</h4>
+                          <p className="text-xs text-gray-500 line-clamp-2 mt-1">{p.description || 'Tidak ada deskripsi'}</p>
+                        </div>
+
+                        <div className="pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+                          <span className="font-medium text-gray-700">{memberCount} Anggota Tim</span>
+                          <button
+                            onClick={() => {
+                              if (setAdminSubTab) setAdminSubTab('projects');
+                              if (setActiveTab) setActiveTab('teacher');
+                            }}
+                            className="font-bold text-indigo-600 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            Tinjau Proyek <ChevronRight size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              {filteredTeacherStudents.length === 0 ? (
+                <div className="text-center py-10 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                  <Users className="mx-auto text-gray-400 mb-2" size={32} />
+                  <p className="text-sm font-bold text-gray-700">Tidak Ada Murid Terdaftar di {selectedClassFilter === 'All' ? 'Sistem' : `Kelas ${selectedClassFilter}`}</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs sm:text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200 bg-gray-50/70 text-gray-500 uppercase tracking-wider text-[10px] font-bold">
+                        <th className="p-3">Nama Siswa</th>
+                        <th className="p-3">Kelas</th>
+                        <th className="p-3">Rata-rata Kompetensi</th>
+                        <th className="p-3 text-right">Tindakan</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {filteredTeacherStudents.map((st: any) => {
+                        const comp = st.competence || {};
+                        const avg = Math.round(((comp.computationalThinking||0) + (comp.ictLiteracy||0) + (comp.projectManagement||0) + (comp.collaboration||0) + (comp.appUsage||0) + (comp.programming||0)) / 6);
+                        return (
+                          <tr key={st.id} className="hover:bg-indigo-50/20 transition-colors">
+                            <td className="p-3 font-bold text-gray-900 flex items-center gap-3">
+                              <img
+                                src={st.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${st.name}`}
+                                alt={st.name}
+                                className="w-8 h-8 rounded-full bg-gray-100 object-cover border border-gray-200"
+                              />
+                              <div>
+                                <p className="font-bold text-gray-900">{st.name}</p>
+                                <p className="text-[10px] font-normal text-gray-400">{st.email}</p>
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <span className="font-bold text-xs px-2.5 py-1 rounded-md bg-gray-100 text-gray-700">
+                                {st.className || 'Belum Diatur'}
+                              </span>
+                            </td>
+                            <td className="p-3">
+                              <div className="flex items-center gap-2">
+                                <span className={`font-bold text-xs ${avg >= 75 ? 'text-emerald-600' : avg >= 60 ? 'text-amber-600' : 'text-gray-600'}`}>
+                                  {avg}%
+                                </span>
+                                <div className="w-20 bg-gray-200 h-1.5 rounded-full overflow-hidden">
+                                  <div className="bg-indigo-600 h-full rounded-full" style={{ width: `${avg}%` }} />
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-3 text-right">
+                              <button
+                                onClick={() => {
+                                  if (setAdminSubTab) setAdminSubTab('students');
+                                  if (setActiveTab) setActiveTab('teacher');
+                                }}
+                                className="px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-lg font-bold text-xs transition-all cursor-pointer"
+                              >
+                                Tinjau Profil & Sertifikat
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white p-5 sm:p-6 md:p-8 rounded-2xl md:rounded-3xl shadow-xs border border-gray-100">
           <h3 className="text-sm sm:text-base font-bold text-gray-900 mb-4 sm:mb-6 flex items-center gap-2">
             <Settings size={18} className="text-indigo-600" />
             Tindakan Pintasan Guru
@@ -629,7 +858,7 @@ export default function Dashboard({ setActiveTab, setAdminSubTab }: DashboardPro
         <div className="lg:col-span-1 bg-white p-5 sm:p-6 md:p-8 rounded-2xl md:rounded-3xl shadow-sm border border-gray-100">
           <h3 className="text-sm sm:text-base font-bold text-gray-900 mb-4 sm:mb-6">Kompetensi Radar (Siswa)</h3>
           <div className="h-72 sm:h-80">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <RadarChart cx="50%" cy="50%" outerRadius="80%" data={competenceData}>
                 <PolarGrid stroke="#e2e8f0" />
                 <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 10 }} />

@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { User, Bell, Shield, Palette, Save, LogOut, Camera, Sparkles } from 'lucide-react';
+import { User, Bell, Shield, Palette, Save, LogOut, Camera, Sparkles, BookOpen, GraduationCap, Check } from 'lucide-react';
 import { useFirebase } from './FirebaseProvider';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 
 export default function Settings() {
-  const { student, signOut, theme, setTheme } = useFirebase();
+  const { student, signOut, theme, setTheme, isTeacher, isAdmin } = useFirebase();
   const [isSaving, setIsSaving] = useState(false);
   const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem('user_gemini_api_key') || '');
   const [formData, setFormData] = useState({
@@ -17,6 +17,9 @@ export default function Settings() {
     whatsapp: student?.whatsapp || '',
     instagram: student?.instagram || '',
     bio: student?.bio || '',
+    teacherSubject: student?.teacherSubject || 'Administrasi Infrastruktur Jaringan',
+    teacherPosition: student?.teacherPosition || 'Guru Mata Pelajaran',
+    teacherClassesStr: (student?.teacherClasses && student.teacherClasses.length > 0 ? student.teacherClasses : ['X TJKT 1', 'X TJKT 2', 'XI TJKT 1']).join(', '),
   });
 
   if (!student) return null;
@@ -25,7 +28,12 @@ export default function Settings() {
     e.preventDefault();
     setIsSaving(true);
     try {
-      await updateDoc(doc(db, 'students', student.id), {
+      const parsedClasses = formData.teacherClassesStr
+        .split(',')
+        .map(c => c.trim())
+        .filter(Boolean);
+
+      const updatePayload: any = {
         name: formData.name,
         email: formData.email,
         avatar: formData.avatar,
@@ -33,7 +41,15 @@ export default function Settings() {
         whatsapp: formData.whatsapp,
         instagram: formData.instagram,
         bio: formData.bio,
-      });
+      };
+
+      if (isTeacher || isAdmin || student.role === 'teacher') {
+        updatePayload.teacherSubject = formData.teacherSubject;
+        updatePayload.teacherPosition = formData.teacherPosition;
+        updatePayload.teacherClasses = parsedClasses.length > 0 ? parsedClasses : ['X TJKT 1', 'X TJKT 2'];
+      }
+
+      await updateDoc(doc(db, 'students', student.id), updatePayload);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `students/${student.id}`);
     } finally {
@@ -164,6 +180,103 @@ export default function Settings() {
                   </div>
                 </div>
               </div>
+
+              {/* Pengaturan Mata Pelajaran & Kelas Bimbingan Guru */}
+              {(isTeacher || isAdmin || student.role === 'teacher') && (
+                <div className="pt-4 border-t border-gray-100 space-y-4 sm:space-y-6">
+                  <div className="flex items-center gap-2 text-indigo-600">
+                    <BookOpen size={18} />
+                    <h4 className="text-xs sm:text-sm font-bold text-gray-900">Pengaturan Guru: Mata Pelajaran & Kelas Bimbingan</h4>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-widest">Mata Pelajaran Utama / Diampu</label>
+                      <input 
+                        type="text" 
+                        value={formData.teacherSubject}
+                        onChange={(e) => setFormData({ ...formData, teacherSubject: e.target.value })}
+                        className="w-full p-3 sm:p-4 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500/20 transition-all outline-none text-xs sm:text-sm font-medium text-gray-900"
+                        placeholder="e.g. Administrasi Infrastruktur Jaringan"
+                      />
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {['Administrasi Infrastruktur Jaringan', 'Pemrograman Web', 'Dasar TJKT', 'Sistem Keamanan Jaringan'].map(presetSubj => (
+                          <button
+                            key={presetSubj}
+                            type="button"
+                            onClick={() => setFormData({ ...formData, teacherSubject: presetSubj })}
+                            className={`text-[10px] px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                              formData.teacherSubject === presetSubj 
+                                ? 'bg-indigo-50 text-indigo-700 border-indigo-200 font-bold' 
+                                : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
+                            }`}
+                          >
+                            {presetSubj}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-widest">Jabatan / Peran Guru</label>
+                      <input 
+                        type="text" 
+                        value={formData.teacherPosition}
+                        onChange={(e) => setFormData({ ...formData, teacherPosition: e.target.value })}
+                        className="w-full p-3 sm:p-4 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500/20 transition-all outline-none text-xs sm:text-sm font-medium text-gray-900"
+                        placeholder="e.g. Guru Produktif TJKT / Wali Kelas"
+                      />
+                      <span className="text-[10px] text-gray-400 block mt-1">Gelar atau fungsi utama Anda di sekolah</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-widest block">Pilih Kelas Bimbingan / Ajar (Klik Untuk Memilih Tanpa Typo)</label>
+                    
+                    {/* Interactive Badge Chips */}
+                    <div className="flex flex-wrap gap-2 p-3 bg-gray-50 rounded-xl border border-gray-150">
+                      {['X TJKT 1', 'X TJKT 2', 'XI TJKT 1', 'XI TJKT 2', 'XII TJKT 1', 'XII TJKT 2'].map(cls => {
+                        const currentClasses = formData.teacherClassesStr.split(',').map(c => c.trim()).filter(Boolean);
+                        const isSelected = currentClasses.includes(cls);
+                        return (
+                          <button
+                            key={cls}
+                            type="button"
+                            onClick={() => {
+                              let updated: string[];
+                              if (isSelected) {
+                                updated = currentClasses.filter(c => c !== cls);
+                              } else {
+                                updated = [...currentClasses, cls];
+                              }
+                              setFormData({ ...formData, teacherClassesStr: updated.join(', ') });
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                              isSelected 
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' 
+                                : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                            }`}
+                          >
+                            {isSelected && <Check size={12} />}
+                            {cls}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <input 
+                      type="text" 
+                      value={formData.teacherClassesStr}
+                      onChange={(e) => setFormData({ ...formData, teacherClassesStr: e.target.value })}
+                      className="w-full p-3 sm:p-4 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500/20 transition-all outline-none text-xs sm:text-sm font-bold text-indigo-900"
+                      placeholder="Atau ketikkan nama kelas kustom dipisahkan koma (e.g. X TJKT 3)"
+                    />
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      Kelas-kelas terpilih di atas secara otomatis akan muncul di filter Dashboard Guru untuk meninjau progres per-kelas!
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <div className="pt-4 border-t border-gray-50">
                 <button 

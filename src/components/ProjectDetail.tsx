@@ -323,18 +323,87 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
         {showKit && <ProjectKit kit={project.kit} onClose={() => setShowKit(false)} />}
       </AnimatePresence>
 
-      <header className="flex items-center gap-6">
-        <button 
-          onClick={onBack}
-          className="p-3 bg-white rounded-xl border border-gray-100 hover:bg-gray-50 transition-colors"
-        >
-          <ChevronLeft size={24} className="text-gray-600" />
-        </button>
-        <div>
-          <h2 className="text-3xl font-bold text-gray-900 tracking-tight">{project.title}</h2>
-          <p className="text-gray-500 mt-1">Project ID: {projectId} • Team: {project.team.length} members</p>
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={onBack}
+            className="p-3 bg-gray-50 rounded-2xl border border-gray-200 hover:bg-gray-100 transition-all cursor-pointer shrink-0"
+          >
+            <ChevronLeft size={20} className="text-gray-700" />
+          </button>
+          <div>
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">{project.title}</h2>
+              {project.subject && (
+                <span className="bg-purple-100 text-purple-800 text-xs font-black px-3 py-1 rounded-xl">
+                  {project.subject}
+                </span>
+              )}
+              {project.targetClass && (
+                <span className="bg-indigo-100 text-indigo-800 text-xs font-black px-3 py-1 rounded-xl uppercase">
+                  {project.targetClass}
+                </span>
+              )}
+            </div>
+            <p className="text-gray-500 text-xs sm:text-sm">
+              Tim Kerja: <strong>{project.team.length} Siswa</strong> • ID Proyek: <code className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">{projectId.slice(0, 8)}</code>
+            </p>
+          </div>
         </div>
+
+        <button
+          onClick={() => setShowKit(true)}
+          className="bg-indigo-600 text-white px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg shadow-indigo-100 cursor-pointer shrink-0"
+        >
+          <FileText size={18} />
+          Lihat Kit & Rubrik Penilaian
+        </button>
       </header>
+
+      {/* Materials & Tools Overview Card */}
+      {((project.learningMaterials && project.learningMaterials.length > 0) || (project.toolsAndMaterials && project.toolsAndMaterials.length > 0) || project.description) && (
+        <div className="bg-gradient-to-r from-indigo-900 via-indigo-950 to-slate-900 p-6 sm:p-8 rounded-[32px] text-white shadow-xl space-y-4">
+          <div className="flex items-center justify-between border-b border-white/10 pb-4">
+            <h3 className="text-xs sm:text-sm font-black uppercase tracking-widest text-indigo-300 flex items-center gap-2">
+              <Sparkles size={16} />
+              Spesifikasi Pembelajaran & Perangkat Ajar
+            </h3>
+            <span className="text-xs text-indigo-200/80 font-medium">Model Pembelajaran Berbasis Proyek (PjBL)</span>
+          </div>
+
+          <p className="text-xs sm:text-sm text-indigo-100/90 leading-relaxed max-w-4xl">
+            {project.description}
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+            {project.learningMaterials && project.learningMaterials.length > 0 && (
+              <div className="bg-white/10 p-4 rounded-2xl border border-white/10 space-y-1.5 backdrop-blur-sm">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-200 block">📚 Materi Ajar / Topik Pembelajaran:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {project.learningMaterials.map((mat, idx) => (
+                    <span key={idx} className="bg-white/15 text-white text-xs px-2.5 py-1 rounded-lg font-medium border border-white/10">
+                      {mat}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {project.toolsAndMaterials && project.toolsAndMaterials.length > 0 && (
+              <div className="bg-white/10 p-4 rounded-2xl border border-white/10 space-y-1.5 backdrop-blur-sm">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-200 block">🛠️ Alat & Bahan Ajar:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {project.toolsAndMaterials.map((tool, idx) => (
+                    <span key={idx} className="bg-white/15 text-white text-xs px-2.5 py-1 rounded-lg font-medium border border-white/10">
+                      {tool}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
         <div className="lg:col-span-1 space-y-6">

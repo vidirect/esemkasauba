@@ -543,19 +543,22 @@ export default function AdminPanel({ activeSubTab: externalActiveSubTab, setActi
                 Buat Tantangan Baru
               </button>
             )}
-            {isAdmin && activeSubTab !== 'challenges' && (
+            {(isAdmin || isTeacher) && activeSubTab !== 'challenges' && (
               <>
                 <button 
                   onClick={() => setConfirmDelete({ id: 'seed', type: 'seed' })}
                   disabled={isSeeding}
-                  className="bg-white border border-gray-200 text-gray-700 px-6 py-3 rounded-2xl font-bold hover:bg-gray-50 transition-all flex items-center gap-2 shadow-sm disabled:opacity-50"
+                  className="bg-white border border-gray-200 text-gray-700 px-6 py-3 rounded-2xl font-bold hover:bg-gray-50 transition-all flex items-center gap-2 shadow-sm disabled:opacity-50 cursor-pointer"
                 >
                   <ListRestart size={20} />
                   {isSeeding ? 'Memuat...' : 'Muat Template Bawaan'}
                 </button>
                 <button 
-                  onClick={() => setShowKitModal(true)}
-                  className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg shadow-indigo-100"
+                  onClick={() => {
+                    setNewKit({ title: '', description: '', workflow: [''], rubric: [''], examples: [], references: [] });
+                    setShowKitModal(true);
+                  }}
+                  className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg shadow-indigo-100 cursor-pointer"
                 >
                   <Plus size={20} />
                   Tambah Kit Baru
@@ -573,12 +576,12 @@ export default function AdminPanel({ activeSubTab: externalActiveSubTab, setActi
         >
           Semua Proyek
         </button>
-        {isAdmin && (
+        {(isAdmin || isTeacher) && (
           <button 
             onClick={() => setActiveSubTab('kits')}
             className={`px-8 py-3 rounded-xl font-bold transition-all ${activeSubTab === 'kits' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
           >
-            Manajemen Kit
+            Manajemen Kit / Bahan Ajar
           </button>
         )}
         <button 

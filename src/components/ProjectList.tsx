@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { FolderKanban, ChevronRight, Clock, Users, CheckCircle2, X, Plus, Trash2, Search, Filter, Award, BookOpen, UserCheck, HelpCircle } from 'lucide-react';
+import { FolderKanban, ChevronRight, Clock, Users, CheckCircle2, X, Plus, Trash2, Search, Filter, Award, BookOpen, UserCheck, HelpCircle, Shuffle, Sparkles, Layers } from 'lucide-react';
 import { collection, query, where, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useFirebase } from './FirebaseProvider';
@@ -15,6 +15,13 @@ function cn(...inputs: ClassValue[]) {
 
 interface ProjectListProps {
   onSelectProject: (projectId: string) => void;
+}
+
+interface MultiTeamItem {
+  id: string;
+  name: string;
+  team: string[];
+  leaderId: string;
 }
 
 export default function ProjectList({ onSelectProject }: ProjectListProps) {
@@ -34,10 +41,21 @@ export default function ProjectList({ onSelectProject }: ProjectListProps) {
   const [selectedClassFilter, setSelectedClassFilter] = useState('All');
   const [projectSearch, setProjectSearch] = useState('');
 
+  // Creation mode state (single team or batch multi-teams for a class)
+  const [creationMode, setCreationMode] = useState<'single' | 'multi'>('single');
+  const [multiTeams, setMultiTeams] = useState<MultiTeamItem[]>([
+    { id: '1', name: 'Kelompok 1', team: [], leaderId: '' },
+    { id: '2', name: 'Kelompok 2', team: [], leaderId: '' }
+  ]);
+  const [activeMultiTeamId, setActiveMultiTeamId] = useState<string>('1');
+
   // Form states
   const [newProject, setNewProject] = useState({ 
     title: '', 
     description: '',
+    subject: '',
+    learningMaterials: '',
+    toolsAndMaterials: '',
     kitId: '',
     targetClass: '',
     team: [] as string[],
@@ -141,6 +159,74 @@ export default function ProjectList({ onSelectProject }: ProjectListProps) {
     });
   };
 
+  const handleAddMultiTeam = () => {
+    const newId = String(Date.now());
+    const newTeamName = `Kelompok ${multiTeams.length + 1}`;
+    setMultiTeams(prev => [
+      ...prev,
+      { id: newId, name: newTeamName, team: [], leaderId: '' }
+    ]);
+    setActiveMultiTeamId(newId);
+  };
+
+  const handleRemoveMultiTeam = (teamId: string) => {
+    if (multiTeams.length <= 1) return;
+    setMultiTeams(prev => {
+      const next = prev.filter(t => t.id !== teamId);
+      if (activeMultiTeamId === teamId) {
+        setActiveMultiTeamId(next[0]?.id || '1');
+      }
+      return next;
+    });
+  };
+
+  const handleAutoDistributeStudents = () => {
+    const classToUse = newProject.targetClass || (modalClassFilter !== 'All' ? modalClassFilter : '');
+    const candidates = classToUse 
+      ? allStudents.filter(s => s.className === classToUse) 
+      : (modalClassFilter !== 'All' ? allStudents.filter(s => s.className === modalClassFilter) : allStudents);
+
+    if (candidates.length === 0) return;
+    const numTeams = multiTeams.length;
+    if (numTeams === 0) return;
+
+    const updatedTeams: MultiTeamItem[] = multiTeams.map(t => ({ ...t, team: [], leaderId: '' }));
+
+    candidates.forEach((st, idx) => {
+      const teamIdx = idx % numTeams;
+      updatedTeams[teamIdx].team.push(st.id);
+    });
+
+    updatedTeams.forEach(t => {
+      if (t.team.length > 0) {
+        t.leaderId = t.team[0];
+      }
+    });
+
+    setMultiTeams(updatedTeams);
+  };
+
+  const toggleStudentInMultiTeam = (teamId: string, studentId: string) => {
+    setMultiTeams(prev => prev.map(t => {
+      if (t.id !== teamId) {
+        const updatedTeam = t.team.filter(id => id !== studentId);
+        return {
+          ...t,
+          team: updatedTeam,
+          leaderId: t.leaderId === studentId ? (updatedTeam[0] || '') : t.leaderId
+        };
+      }
+      const exists = t.team.includes(studentId);
+      const newTeam = exists ? t.team.filter(id => id !== studentId) : [...t.team, studentId];
+      const newLeader = newTeam.includes(t.leaderId) ? t.leaderId : (newTeam[0] || '');
+      return {
+        ...t,
+        team: newTeam,
+        leaderId: newLeader
+      };
+    }));
+  };
+
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!student || !newProject.title) return;
@@ -157,47 +243,104 @@ export default function ProjectList({ onSelectProject }: ProjectListProps) {
         'Publication': { status: 'pending', tasks: [], artifacts: [] }
       };
 
-      let finalTeam = [student.id];
-      let finalLeader = student.id;
-      let finalTargetClass = student.className || '';
+      const parsedLearning = newProject.learningMaterials
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
 
-      if (isTeacher || isAdmin) {
-        if (newProject.team.length === 0) {
-          throw new Error("Silakan pilih minimal 1 siswa untuk kelompok proyek.");
+      const parsedTools = newProject.toolsAndMaterials
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+
+      const finalSubject = newProject.subject || student?.teacherSubject || selectedKit.subject || 'Administrasi Infrastruktur Jaringan';
+
+      if (creationMode === 'multi' && (isTeacher || isAdmin)) {
+        if (multiTeams.length === 0) {
+          throw new Error("Silakan buat minimal 1 kelompok.");
         }
-        if (!newProject.leaderId) {
-          throw new Error("Silakan pilih salah satu siswa sebagai Ketua Tim.");
+        for (const t of multiTeams) {
+          if (t.team.length === 0) {
+            throw new Error(`Silakan pilih minimal 1 anggota untuk ${t.name}.`);
+          }
+          if (!t.leaderId) {
+            throw new Error(`Silakan pilih Ketua Tim untuk ${t.name}.`);
+          }
         }
-        finalTeam = newProject.team;
-        finalLeader = newProject.leaderId;
-        
-        // Find leader's class as default target class
-        const leaderObj = allStudents.find(s => s.id === finalLeader);
-        finalTargetClass = newProject.targetClass || leaderObj?.className || '';
+
+        const baseTitle = newProject.title || selectedKit.title;
+        for (const t of multiTeams) {
+          const fullTitle = `${baseTitle} - ${t.name}`;
+          const leaderObj = allStudents.find(s => s.id === t.leaderId);
+          const targetCls = newProject.targetClass || leaderObj?.className || '';
+
+          const projectData = {
+            title: fullTitle,
+            description: newProject.description,
+            subject: finalSubject,
+            learningMaterials: parsedLearning,
+            toolsAndMaterials: parsedTools,
+            currentStage: 'Orientation',
+            progress: 0,
+            status: 'active',
+            team: t.team,
+            leaderId: t.leaderId,
+            dueDate: serverTimestamp(),
+            stages: defaultStages,
+            kit: selectedKit,
+            targetClass: targetCls,
+            memberRoles: {}
+          };
+          await addDoc(collection(db, 'projects'), projectData);
+        }
+      } else {
+        let finalTeam = [student.id];
+        let finalLeader = student.id;
+        let finalTargetClass = student.className || '';
+
+        if (isTeacher || isAdmin) {
+          if (newProject.team.length === 0) {
+            throw new Error("Silakan pilih minimal 1 siswa untuk kelompok proyek.");
+          }
+          if (!newProject.leaderId) {
+            throw new Error("Silakan pilih salah satu siswa sebagai Ketua Tim.");
+          }
+          finalTeam = newProject.team;
+          finalLeader = newProject.leaderId;
+          
+          const leaderObj = allStudents.find(s => s.id === finalLeader);
+          finalTargetClass = newProject.targetClass || leaderObj?.className || '';
+        }
+
+        const projectData = {
+          title: newProject.title,
+          description: newProject.description,
+          subject: finalSubject,
+          learningMaterials: parsedLearning,
+          toolsAndMaterials: parsedTools,
+          currentStage: 'Orientation',
+          progress: 0,
+          status: 'active',
+          team: finalTeam,
+          leaderId: finalLeader,
+          dueDate: serverTimestamp(),
+          stages: defaultStages,
+          kit: selectedKit,
+          targetClass: finalTargetClass,
+          memberRoles: {}
+        };
+
+        await addDoc(collection(db, 'projects'), projectData);
       }
-
-      const projectData = {
-        title: newProject.title,
-        description: newProject.description,
-        currentStage: 'Orientation',
-        progress: 0,
-        status: 'active',
-        team: finalTeam,
-        leaderId: finalLeader,
-        dueDate: serverTimestamp(),
-        stages: defaultStages,
-        kit: selectedKit,
-        targetClass: finalTargetClass,
-        memberRoles: {}
-      };
-
-      await addDoc(collection(db, 'projects'), projectData);
       
       // Reset state
       setShowModal(false);
       setNewProject({ 
         title: '', 
         description: '', 
+        subject: '',
+        learningMaterials: '',
+        toolsAndMaterials: '',
         kitId: kits[0]?.id || PROJECT_KITS[0].id,
         targetClass: '',
         team: [],
@@ -363,8 +506,13 @@ export default function ProjectList({ onSelectProject }: ProjectListProps) {
                   <div className="flex-1 min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-lg font-bold text-gray-900 group-hover:text-indigo-600 transition-colors truncate">{project.title}</h3>
+                      {project.subject && (
+                        <span className="bg-purple-50 text-purple-700 text-[10px] font-bold px-2 py-0.5 rounded-lg border border-purple-100">
+                          {project.subject}
+                        </span>
+                      )}
                       {project.targetClass && (
-                        <span className="bg-indigo-50 text-indigo-700 text-[10px] font-black px-2 py-0.5 rounded-lg uppercase tracking-wide">
+                        <span className="bg-indigo-50 text-indigo-700 text-[10px] font-black px-2 py-0.5 rounded-lg uppercase tracking-wide border border-indigo-100">
                           {project.targetClass}
                         </span>
                       )}
@@ -376,6 +524,22 @@ export default function ProjectList({ onSelectProject }: ProjectListProps) {
                       )}
                     </div>
                     <p className="text-gray-500 text-xs sm:text-sm line-clamp-2 max-w-3xl">{project.description}</p>
+                    
+                    {/* Materials and Tools tags */}
+                    {((project.learningMaterials && project.learningMaterials.length > 0) || (project.toolsAndMaterials && project.toolsAndMaterials.length > 0)) && (
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        {project.learningMaterials && project.learningMaterials.length > 0 && (
+                          <span className="text-[10px] text-gray-500 bg-gray-100 px-2 py-0.5 rounded-md font-medium">
+                            📚 Materi: {project.learningMaterials.join(', ')}
+                          </span>
+                        )}
+                        {project.toolsAndMaterials && project.toolsAndMaterials.length > 0 && (
+                          <span className="text-[10px] text-gray-500 bg-gray-100 px-2 py-0.5 rounded-md font-medium">
+                            🛠️ Alat: {project.toolsAndMaterials.join(', ')}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -487,7 +651,7 @@ export default function ProjectList({ onSelectProject }: ProjectListProps) {
               initial={{ scale: 0.92, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.92, y: 20 }}
-              className="bg-white w-full max-w-3xl rounded-[32px] shadow-2xl overflow-hidden max-h-[92vh] flex flex-col"
+              className="bg-white w-full max-w-5xl rounded-[32px] shadow-2xl overflow-hidden max-h-[92vh] flex flex-col"
             >
               <div className="p-6 sm:p-8 border-b border-gray-100 flex justify-between items-center bg-indigo-650 text-white shrink-0">
                 <div>
@@ -500,7 +664,7 @@ export default function ProjectList({ onSelectProject }: ProjectListProps) {
               </div>
 
               <form onSubmit={handleCreateProject} className="p-6 sm:p-8 space-y-6 overflow-y-auto flex-1">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {/* Left Column: Core Fields */}
                   <div className="space-y-4">
                     <div className="space-y-1.5">
@@ -517,14 +681,68 @@ export default function ProjectList({ onSelectProject }: ProjectListProps) {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block">Judul Kelompok Proyek</label>
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block">Judul Kelompok Proyek / Tugas</label>
                       <input
                         required
                         type="text"
                         value={newProject.title}
                         onChange={(e) => setNewProject({ ...newProject, title: e.target.value })}
                         className="w-full p-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm font-medium"
-                        placeholder="Contoh: DHCP Server Lab Jaringan - Tim A"
+                        placeholder={creationMode === 'multi' ? "Contoh: DHCP Server Lab Jaringan" : "Contoh: DHCP Server Lab Jaringan - Tim A"}
+                      />
+                      {creationMode === 'multi' && (
+                        <p className="text-[11px] text-indigo-600 font-medium">
+                          💡 Nama kelompok (seperti '- Kelompok 1', '- Kelompok 2') akan ditambahkan secara otomatis di akhir judul setiap tim.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block">Mata Pelajaran Proyek</label>
+                      <input
+                        type="text"
+                        value={newProject.subject}
+                        onChange={(e) => setNewProject({ ...newProject, subject: e.target.value })}
+                        className="w-full p-3.5 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm font-semibold text-gray-900"
+                        placeholder={student?.teacherSubject || "Contoh: Administrasi Infrastruktur Jaringan"}
+                      />
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {['Administrasi Infrastruktur Jaringan', 'Pemrograman Web', 'Dasar TJKT', 'Sistem Keamanan Jaringan'].map(subj => (
+                          <button
+                            key={subj}
+                            type="button"
+                            onClick={() => setNewProject({ ...newProject, subject: subj })}
+                            className={`text-[10px] px-2 py-0.5 rounded-lg border transition-all cursor-pointer ${
+                              newProject.subject === subj 
+                                ? 'bg-indigo-600 text-white border-indigo-600 font-bold' 
+                                : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'
+                            }`}
+                          >
+                            + {subj}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block">Materi Ajar / Topik Pembelajaran (Dipisahkan Koma)</label>
+                      <input
+                        type="text"
+                        value={newProject.learningMaterials}
+                        onChange={(e) => setNewProject({ ...newProject, learningMaterials: e.target.value })}
+                        className="w-full p-3.5 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-xs font-medium text-gray-800"
+                        placeholder="Contoh: Konfigurasi VLAN & Trunking, IP Addressing, RouterOS"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block">Alat & Bahan Ajar (Dipisahkan Koma)</label>
+                      <input
+                        type="text"
+                        value={newProject.toolsAndMaterials}
+                        onChange={(e) => setNewProject({ ...newProject, toolsAndMaterials: e.target.value })}
+                        className="w-full p-3.5 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-xs font-medium text-gray-800"
+                        placeholder="Contoh: Router Board MikroTik RB951, Switch Cisco Managed, Kabel UTP Cat6, Packet Tracer"
                       />
                     </div>
 
@@ -532,11 +750,11 @@ export default function ProjectList({ onSelectProject }: ProjectListProps) {
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block">Tujuan & Deskripsi Skenario</label>
                       <textarea
                         required
-                        rows={4}
+                        rows={3}
                         value={newProject.description}
                         onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
-                        className="w-full p-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500/20 outline-none resize-none text-sm leading-relaxed"
-                        placeholder="Deskripsikan dengan detail tugas dan ekspektasi hasil dari tim kelompok ini..."
+                        className="w-full p-3.5 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500/20 outline-none resize-none text-xs leading-relaxed"
+                        placeholder="Deskripsikan dengan detail tugas dan ekspektasi hasil dari proyek kelompok ini..."
                       />
                     </div>
 
@@ -561,8 +779,8 @@ export default function ProjectList({ onSelectProject }: ProjectListProps) {
                     )}
                   </div>
 
-                  {/* Right Column: Team Builders (for Teachers & Admins) */}
-                  <div className="flex flex-col h-full min-h-[300px]">
+                  {/* Right Column: Team Builders (Single or Multi Team) */}
+                  <div className="flex flex-col h-full min-h-[350px]">
                     {!(isTeacher || isAdmin) ? (
                       <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 flex flex-col justify-between h-full space-y-4">
                         <div className="space-y-2">
@@ -579,105 +797,321 @@ export default function ProjectList({ onSelectProject }: ProjectListProps) {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex flex-col flex-1 border border-gray-150 rounded-3xl overflow-hidden h-full">
-                        {/* Selector Filter Block */}
-                        <div className="p-4 bg-gray-50 border-b border-gray-150 space-y-3 shrink-0">
-                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1">
-                            <Users size={12} />
-                            Pilih Anggota Tim ({newProject.team.length} dipilih)
-                          </p>
-                          
-                          <div className="flex gap-2">
-                            {/* Class filtration inside checklist */}
-                            <select
-                              value={modalClassFilter}
-                              onChange={(e) => setModalClassFilter(e.target.value)}
-                              className="w-32 p-2 bg-white border border-gray-200 rounded-xl text-xs font-bold outline-none cursor-pointer"
-                            >
-                              <option value="All">Semua Siswa</option>
-                              {studentClasses.map(clsName => (
-                                <option key={clsName} value={clsName}>{clsName}</option>
-                              ))}
-                            </select>
-
-                            {/* Search checklist */}
-                            <div className="relative flex-1">
-                              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={12} />
-                              <input
-                                type="text"
-                                value={studentSearch}
-                                onChange={e => setStudentSearch(e.target.value)}
-                                placeholder="Cari nama siswa..."
-                                className="w-full pl-8 pr-3 py-2 bg-white border border-gray-200 rounded-xl text-xs outline-none"
-                              />
-                            </div>
-                          </div>
+                      <div className="flex flex-col flex-1 border border-gray-200 rounded-3xl overflow-hidden bg-white shadow-xs">
+                        {/* Mode Switcher Header */}
+                        <div className="p-3 bg-gray-100/80 border-b border-gray-200 flex gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setCreationMode('single')}
+                            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                              creationMode === 'single'
+                                ? 'bg-white text-indigo-700 shadow-xs border border-gray-200'
+                                : 'text-gray-600 hover:text-gray-900'
+                            }`}
+                          >
+                            <Users size={14} />
+                            1 Kelompok / Tim
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCreationMode('multi')}
+                            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                              creationMode === 'multi'
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'text-gray-600 hover:text-gray-900'
+                            }`}
+                          >
+                            <Layers size={14} />
+                            Bagi Banyak Tim Kelas (Multi)
+                          </button>
                         </div>
 
-                        {/* Checklist Container */}
-                        <div className="flex-1 overflow-y-auto p-4 space-y-2 max-h-[220px]">
-                          {filteredStudentsForChecklist.map(st => {
-                            const isChecked = newProject.team.includes(st.id);
-                            return (
-                              <button
-                                type="button"
-                                key={st.id}
-                                onClick={() => toggleStudentInTeam(st.id)}
-                                className={`w-full flex items-center justify-between p-2.5 rounded-xl border text-left transition-all ${
-                                  isChecked 
-                                    ? 'border-indigo-500 bg-indigo-50/10' 
-                                    : 'border-transparent hover:bg-gray-50'
-                                }`}
-                              >
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                  <img 
-                                    src={st.avatar || `https://picsum.photos/seed/${st.id}/40/40`} 
-                                    className="w-8 h-8 rounded-lg object-cover shrink-0" 
-                                    alt="Avatar" 
+                        {creationMode === 'single' ? (
+                          /* Single Team Builder */
+                          <div className="flex flex-col flex-1 h-full">
+                            {/* Selector Filter Block */}
+                            <div className="p-4 bg-gray-50 border-b border-gray-150 space-y-3 shrink-0">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest flex items-center gap-1">
+                                  <Users size={12} />
+                                  Anggota Tim ({newProject.team.length} dipilih)
+                                </p>
+                                
+                                {filteredStudentsForChecklist.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const currentFilteredIds = filteredStudentsForChecklist.map(s => s.id);
+                                      const allSelected = currentFilteredIds.every(id => newProject.team.includes(id));
+                                      if (allSelected) {
+                                        setNewProject(prev => ({
+                                          ...prev,
+                                          team: prev.team.filter(id => !currentFilteredIds.includes(id))
+                                        }));
+                                      } else {
+                                        const updated = Array.from(new Set([...newProject.team, ...currentFilteredIds]));
+                                        setNewProject(prev => ({
+                                          ...prev,
+                                          team: updated,
+                                          leaderId: prev.leaderId || updated[0]
+                                        }));
+                                      }
+                                    }}
+                                    className="text-[10px] font-bold text-indigo-600 hover:underline cursor-pointer whitespace-nowrap"
+                                  >
+                                    {filteredStudentsForChecklist.every(s => newProject.team.includes(s.id)) ? 'Batal Pilih Semua' : '+ Pilih Semua di Kelas Ini'}
+                                  </button>
+                                )}
+                              </div>
+                              
+                              <div className="flex gap-2">
+                                <select
+                                  value={modalClassFilter}
+                                  onChange={(e) => setModalClassFilter(e.target.value)}
+                                  className="w-32 p-2 bg-white border border-gray-200 rounded-xl text-xs font-bold outline-none cursor-pointer shrink-0"
+                                >
+                                  <option value="All">Semua Siswa</option>
+                                  {studentClasses.map(clsName => (
+                                    <option key={clsName} value={clsName}>{clsName}</option>
+                                  ))}
+                                </select>
+
+                                <div className="relative flex-1 min-w-0">
+                                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={12} />
+                                  <input
+                                    type="text"
+                                    value={studentSearch}
+                                    onChange={e => setStudentSearch(e.target.value)}
+                                    placeholder="Cari nama siswa..."
+                                    className="w-full pl-8 pr-3 py-2 bg-white border border-gray-200 rounded-xl text-xs outline-none"
                                   />
-                                  <div className="min-w-0">
-                                    <p className="text-xs font-extrabold text-gray-800 truncate">{st.name}</p>
-                                    <p className="text-[10px] text-gray-450 truncate">{st.email} • {st.className || 'Tanpa Kelas'}</p>
-                                  </div>
                                 </div>
-                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                                  isChecked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-200 bg-white'
-                                }`}>
-                                  {isChecked && <UserCheck size={11} />}
-                                </div>
-                              </button>
-                            );
-                          })}
-                          {filteredStudentsForChecklist.length === 0 && (
-                            <div className="text-center py-6 text-gray-400">
-                              <p className="text-xs">Siswa tidak ditemukan.</p>
+                              </div>
                             </div>
-                          )}
-                        </div>
 
-                        {/* Choose Leader Block */}
-                        {newProject.team.length > 0 && (
-                          <div className="p-4 bg-amber-50/50 border-t border-gray-150 space-y-1.5 shrink-0">
-                            <label className="text-[10px] font-black text-amber-800 uppercase tracking-widest block flex items-center gap-1">
-                              <Award size={12} />
-                              Pilih Ketua Tim / Ketua Proyek
-                            </label>
-                            <select
-                              value={newProject.leaderId}
-                              required
-                              onChange={(e) => setNewProject({ ...newProject, leaderId: e.target.value })}
-                              className="w-full p-2.5 bg-white border border-gray-200 rounded-xl text-xs font-bold outline-none cursor-pointer"
-                            >
-                              <option value="">-- Pilih Ketua --</option>
-                              {newProject.team.map(memberId => {
-                                const matched = allStudents.find(st => st.id === memberId);
+                            {/* Checklist Container */}
+                            <div className="flex-1 overflow-y-auto p-3 space-y-1.5 max-h-[220px]">
+                              {filteredStudentsForChecklist.map(st => {
+                                const isChecked = newProject.team.includes(st.id);
                                 return (
-                                  <option key={memberId} value={memberId}>
-                                    {matched?.name || `Siswa ${memberId.slice(-4)}`}
-                                  </option>
+                                  <button
+                                    type="button"
+                                    key={st.id}
+                                    onClick={() => toggleStudentInTeam(st.id)}
+                                    className={`w-full flex items-center justify-between p-2.5 rounded-xl border text-left transition-all ${
+                                      isChecked 
+                                        ? 'border-indigo-500 bg-indigo-50/20' 
+                                        : 'border-transparent hover:bg-gray-50'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                                      <img 
+                                        src={st.avatar || `https://picsum.photos/seed/${st.id}/40/40`} 
+                                        className="w-8 h-8 rounded-lg object-cover shrink-0" 
+                                        alt="Avatar" 
+                                      />
+                                      <div className="min-w-0">
+                                        <p className="text-xs font-extrabold text-gray-800 truncate">{st.name}</p>
+                                        <p className="text-[10px] text-gray-500 truncate">{st.email} • {st.className || 'Tanpa Kelas'}</p>
+                                      </div>
+                                    </div>
+                                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                                      isChecked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-200 bg-white'
+                                    }`}>
+                                      {isChecked && <UserCheck size={11} />}
+                                    </div>
+                                  </button>
                                 );
                               })}
-                            </select>
+                              {filteredStudentsForChecklist.length === 0 && (
+                                <div className="text-center py-6 text-gray-400">
+                                  <p className="text-xs">Siswa tidak ditemukan.</p>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Choose Leader Block */}
+                            {newProject.team.length > 0 && (
+                              <div className="p-4 bg-amber-50/50 border-t border-gray-150 space-y-1.5 shrink-0">
+                                <label className="text-[10px] font-black text-amber-800 uppercase tracking-widest block flex items-center gap-1">
+                                  <Award size={12} />
+                                  Pilih Ketua Tim / Ketua Proyek
+                                </label>
+                                <select
+                                  value={newProject.leaderId}
+                                  required
+                                  onChange={(e) => setNewProject({ ...newProject, leaderId: e.target.value })}
+                                  className="w-full p-2.5 bg-white border border-gray-200 rounded-xl text-xs font-bold outline-none cursor-pointer"
+                                >
+                                  <option value="">-- Pilih Ketua --</option>
+                                  {newProject.team.map(memberId => {
+                                    const matched = allStudents.find(st => st.id === memberId);
+                                    return (
+                                      <option key={memberId} value={memberId}>
+                                        {matched?.name || `Siswa ${memberId.slice(-4)}`}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          /* Multi-Team Batch Builder */
+                          <div className="flex flex-col flex-1 h-full p-4 space-y-4">
+                            {/* Actions Top Bar */}
+                            <div className="flex flex-wrap items-center justify-between gap-2 bg-indigo-50/70 p-3 rounded-2xl border border-indigo-100">
+                              <div className="space-y-0.5">
+                                <span className="text-xs font-black text-indigo-950 block">Pembagian Multi-Tim Kelas</span>
+                                <span className="text-[10px] text-indigo-700">Total {multiTeams.length} Kelompok Dibuat</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={handleAutoDistributeStudents}
+                                  className="px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all flex items-center gap-1 cursor-pointer shadow-xs"
+                                  title="Bagi seluruh siswa kelas secara merata ke dalam kelompok"
+                                >
+                                  <Sparkles size={12} />
+                                  Bagi Otomatis Siswa
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleAddMultiTeam}
+                                  className="px-2.5 py-1.5 bg-white text-gray-700 border border-gray-200 rounded-xl text-xs font-bold hover:bg-gray-100 transition-all flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Plus size={13} />
+                                  Tambah Tim
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Teams Horizontal Tab List */}
+                            <div className="flex gap-2 overflow-x-auto pb-1 shrink-0">
+                              {multiTeams.map((t, idx) => {
+                                const isActive = activeMultiTeamId === t.id;
+                                return (
+                                  <div
+                                    key={t.id}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-all shrink-0 ${
+                                      isActive 
+                                        ? 'bg-indigo-900 text-white border-indigo-900 shadow-xs' 
+                                        : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                                    }`}
+                                    onClick={() => setActiveMultiTeamId(t.id)}
+                                  >
+                                    <span>{t.name}</span>
+                                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${isActive ? 'bg-indigo-700 text-indigo-100' : 'bg-gray-200 text-gray-600'}`}>
+                                      {t.team.length}
+                                    </span>
+                                    {multiTeams.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleRemoveMultiTeam(t.id);
+                                        }}
+                                        className="hover:text-red-300 ml-1 cursor-pointer"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* Selected Multi Team Editor Card */}
+                            {multiTeams.find(t => t.id === activeMultiTeamId) && (() => {
+                              const activeTeam = multiTeams.find(t => t.id === activeMultiTeamId)!;
+                              return (
+                                <div className="space-y-3 flex-1 flex flex-col min-h-0">
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Nama Kelompok</label>
+                                      <input
+                                        type="text"
+                                        value={activeTeam.name}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setMultiTeams(prev => prev.map(t => t.id === activeTeam.id ? { ...t, name: val } : t));
+                                        }}
+                                        className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold outline-none"
+                                        placeholder="e.g. Kelompok 1"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[10px] font-bold text-amber-700 uppercase tracking-widest block mb-1">Ketua Kelompok</label>
+                                      <select
+                                        value={activeTeam.leaderId}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setMultiTeams(prev => prev.map(t => t.id === activeTeam.id ? { ...t, leaderId: val } : t));
+                                        }}
+                                        className="w-full p-2.5 bg-amber-50/60 border border-amber-200 rounded-xl text-xs font-bold text-amber-900 outline-none"
+                                      >
+                                        <option value="">-- Pilih Ketua --</option>
+                                        {activeTeam.team.map(mId => {
+                                          const st = allStudents.find(s => s.id === mId);
+                                          return <option key={mId} value={mId}>{st?.name || mId}</option>;
+                                        })}
+                                      </select>
+                                    </div>
+                                  </div>
+
+                                  {/* Member Selection for Active Multi-Team */}
+                                  <div className="flex-1 border border-gray-150 rounded-2xl p-3 flex flex-col min-h-0 bg-gray-50/50">
+                                    <div className="flex items-center justify-between mb-2 pb-2 border-b border-gray-200">
+                                      <span className="text-[10px] font-black uppercase text-gray-500 tracking-wider">
+                                        Pilih Anggota {activeTeam.name} ({activeTeam.team.length} Anggota)
+                                      </span>
+                                      <div className="relative w-36">
+                                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" size={11} />
+                                        <input
+                                          type="text"
+                                          value={studentSearch}
+                                          onChange={e => setStudentSearch(e.target.value)}
+                                          placeholder="Cari nama..."
+                                          className="w-full pl-6 pr-2 py-1 bg-white border border-gray-200 rounded-lg text-[10px] outline-none"
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div className="overflow-y-auto space-y-1 flex-1 max-h-[160px] pr-1">
+                                      {filteredStudentsForChecklist.map(st => {
+                                        const isChecked = activeTeam.team.includes(st.id);
+                                        // Check if student belongs to another multi team
+                                        const otherTeam = multiTeams.find(t => t.id !== activeTeam.id && t.team.includes(st.id));
+                                        return (
+                                          <button
+                                            type="button"
+                                            key={st.id}
+                                            onClick={() => toggleStudentInMultiTeam(activeTeam.id, st.id)}
+                                            className={`w-full flex items-center justify-between p-2 rounded-xl text-left border transition-all ${
+                                              isChecked 
+                                                ? 'bg-indigo-600 text-white border-indigo-600' 
+                                                : 'bg-white text-gray-800 border-gray-150 hover:bg-gray-100'
+                                            }`}
+                                          >
+                                            <div className="min-w-0 pr-2">
+                                              <p className="text-xs font-bold truncate">{st.name}</p>
+                                              <p className={`text-[9px] truncate ${isChecked ? 'text-indigo-100' : 'text-gray-400'}`}>
+                                                {st.className || 'Tanpa Kelas'} {otherTeam && `• (Ditugaskan ke ${otherTeam.name})`}
+                                              </p>
+                                            </div>
+                                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                                              isChecked ? 'bg-white text-indigo-700 border-white' : 'border-gray-300'
+                                            }`}>
+                                              {isChecked && <UserCheck size={10} />}
+                                            </div>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         )}
                       </div>
@@ -698,7 +1132,10 @@ export default function ProjectList({ onSelectProject }: ProjectListProps) {
                     disabled={isCreating}
                     className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-150 disabled:opacity-50 cursor-pointer"
                   >
-                    {isCreating ? 'Inisiasi...' : 'Terbitkan Kelompok Proyek'}
+                    {isCreating 
+                      ? 'Menginisiasi Proyek...' 
+                      : (creationMode === 'multi' ? `Terbitkan ${multiTeams.length} Kelompok Proyek` : 'Terbitkan Kelompok Proyek')
+                    }
                   </button>
                 </div>
               </form>

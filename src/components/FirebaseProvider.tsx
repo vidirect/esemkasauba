@@ -11,6 +11,7 @@ interface FirebaseContextType {
   isTeacher: boolean;
   loading: boolean;
   isSigningIn: boolean;
+  unreadDmCount: number;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   theme: 'light' | 'dark';
@@ -24,6 +25,7 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
   const [student, setStudent] = useState<Student | null>(null);
   const [loading, setLoading] = useState(true);
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [unreadDmCount, setUnreadDmCount] = useState<number>(0);
   const [theme, setThemeState] = useState<'light' | 'dark'>(() => {
     return (localStorage.getItem('theme') as 'light' | 'dark') || 'light';
   });
@@ -191,11 +193,37 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Realtime listener for unread direct messages sent to current user
+  useEffect(() => {
+    if (!student?.id) {
+      setUnreadDmCount(0);
+      return;
+    }
+    const q = query(
+      collection(db, 'direct_messages'),
+      where('receiverId', '==', student.id)
+    );
+    const unsub = onSnapshot(q, (snapshot) => {
+      let unread = 0;
+      snapshot.docs.forEach((d) => {
+        const data = d.data();
+        if (!data.read) {
+          unread++;
+        }
+      });
+      setUnreadDmCount(unread);
+    }, (err) => {
+      console.error("Error fetching unread DMs count:", err);
+    });
+
+    return () => unsub();
+  }, [student?.id]);
+
   const isAdmin = student?.role === 'admin' || user?.email === 'vikry.thu@gmail.com';
   const isTeacher = student?.role === 'teacher';
 
   return (
-    <FirebaseContext.Provider value={{ user, student, isAdmin, isTeacher, loading, isSigningIn, signIn, signOut: signOutUser, theme, setTheme }}>
+    <FirebaseContext.Provider value={{ user, student, isAdmin, isTeacher, loading, isSigningIn, unreadDmCount, signIn, signOut: signOutUser, theme, setTheme }}>
       {children}
     </FirebaseContext.Provider>
   );

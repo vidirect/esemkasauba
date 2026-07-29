@@ -4,6 +4,7 @@ export interface ProjectKit {
   id?: string;
   title: string;
   description: string;
+  subject?: string;
   workflow: string[];
   rubric: string[];
   examples: string[];
@@ -14,6 +15,9 @@ export interface Project {
   id: string;
   title: string;
   description: string;
+  subject?: string;
+  learningMaterials?: string[];
+  toolsAndMaterials?: string[];
   currentStage: ProjectStage;
   progress: number;
   status: 'active' | 'completed';
@@ -67,6 +71,8 @@ export interface Student {
   profileSetup?: boolean;
   teacherPosition?: string;
   teacherSubject?: string;
+  teacherSubjects?: string[];
+  teacherClasses?: string[];
   gradeLevel?: 'X' | 'XI' | 'XII';
   major?: string;
   classNumber?: string;
@@ -85,6 +91,8 @@ export interface DirectMessage {
   receiverId: string;
   receiverName: string;
   message: string;
+  chatKey?: string;
+  read?: boolean;
   mediaUrl?: string; // For photos, videos, or audio links
   mediaType?: 'image' | 'video' | 'audio' | 'link';
   timestamp: any; // Firestore Timestamp

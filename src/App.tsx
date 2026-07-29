@@ -31,7 +31,7 @@ const menuItems = [
 const cn = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ');
 
 function AppContent() {
-  const { user, student, loading, signIn, isSigningIn, isAdmin, isTeacher, signOut } = useFirebase();
+  const { user, student, loading, signIn, isSigningIn, isAdmin, isTeacher, signOut, unreadDmCount } = useFirebase();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [adminSubTab, setAdminSubTab] = useState<'projects' | 'kits' | 'students' | 'acl' | 'challenges'>('projects');
@@ -92,13 +92,13 @@ function AppContent() {
   }
 
   const filteredMenuItems = menuItems.filter(item => {
-    // 1. If admin, they ONLY see dashboard, admin center, and settings
+    // 1. If admin, they see dashboard, projects, admin center, collaboration, and settings
     if (isAdmin) {
-      return ['dashboard', 'admin', 'settings'].includes(item.id);
+      return ['dashboard', 'projects', 'admin', 'collaboration', 'settings'].includes(item.id);
     }
-    // 2. If teacher, they ONLY see dashboard, teacher console, collaboration, and settings
+    // 2. If teacher, they see dashboard, projects, teacher console, collaboration, and settings
     if (isTeacher) {
-      return ['dashboard', 'teacher', 'collaboration', 'settings'].includes(item.id);
+      return ['dashboard', 'projects', 'teacher', 'collaboration', 'settings'].includes(item.id);
     }
     // 3. If student, they see dashboard, projects, portfolio, collaboration, and settings
     return ['dashboard', 'projects', 'portfolio', 'collaboration', 'settings'].includes(item.id);
@@ -116,10 +116,10 @@ function AppContent() {
 
   const renderContent = () => {
     // Role-based page access protection
-    if (isAdmin && !['dashboard', 'admin', 'settings'].includes(activeTab)) {
+    if (isAdmin && !['dashboard', 'projects', 'project-detail', 'admin', 'collaboration', 'settings'].includes(activeTab)) {
       return <Dashboard setActiveTab={setActiveTab} setAdminSubTab={setAdminSubTab} />;
     }
-    if (isTeacher && !['dashboard', 'teacher', 'collaboration', 'settings'].includes(activeTab)) {
+    if (isTeacher && !['dashboard', 'projects', 'project-detail', 'teacher', 'collaboration', 'settings'].includes(activeTab)) {
       return <Dashboard setActiveTab={setActiveTab} setAdminSubTab={setAdminSubTab} />;
     }
     if (!isAdmin && !isTeacher && !['dashboard', 'projects', 'project-detail', 'portfolio', 'collaboration', 'settings'].includes(activeTab)) {
@@ -200,6 +200,8 @@ function AppContent() {
         {filteredMenuItems.map((item) => {
           const Icon = item.icon;
           const isActive = (activeTab === 'project-detail' && item.id === 'projects') || activeTab === item.id;
+          const showDmBadge = item.id === 'collaboration' && unreadDmCount > 0;
+
           return (
             <button
               key={item.id}
@@ -212,10 +214,15 @@ function AppContent() {
               className="flex flex-col items-center justify-center flex-1 py-0.5 px-1 relative transition-all duration-200"
             >
               <div className={cn(
-                "p-1.5 rounded-xl transition-all duration-300",
+                "p-1.5 rounded-xl transition-all duration-300 relative",
                 isActive ? "bg-indigo-50 text-indigo-600 scale-105" : "text-gray-400"
               )}>
                 <Icon size={18} />
+                {showDmBadge && (
+                  <span className="absolute -top-1 -right-1 px-1.5 py-0.2 text-[8px] font-black bg-rose-500 text-white rounded-full ring-2 ring-white animate-pulse">
+                    {unreadDmCount > 9 ? '9+' : unreadDmCount}
+                  </span>
+                )}
               </div>
               <span className={cn(
                 "text-[9px] font-bold tracking-tight mt-0.5 whitespace-nowrap transition-all duration-200",

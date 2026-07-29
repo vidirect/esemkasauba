@@ -27,7 +27,8 @@ import {
   ArrowLeft,
   RefreshCw,
   HelpCircle,
-  Pencil
+  Pencil,
+  Inbox
 } from 'lucide-react';
 
 const cn = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ');
@@ -86,7 +87,7 @@ import { useFirebase } from './FirebaseProvider';
 import { Discussion, Student, DirectMessage, WeeklyChallenge } from '../types';
 
 export default function Collaboration() {
-  const { student, user } = useFirebase();
+  const { student, user, unreadDmCount } = useFirebase();
   const [collabTab, setCollabTab] = useState<'forum' | 'dm'>('forum');
   
   // Weekly Challenge state & persistence hooks
@@ -255,11 +256,13 @@ export default function Collaboration() {
   };
 
   // States for DM & Directory tab
+  const [dmSubTab, setDmSubTab] = useState<'inbox' | 'directory'>('inbox');
   const [allUsers, setAllUsers] = useState<Student[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'student' | 'teacher' | 'admin'>('student');
   const [selectedUser, setSelectedUser] = useState<Student | null>(null);
   const [dmMessages, setDmMessages] = useState<DirectMessage[]>([]);
+  const [userDms, setUserDms] = useState<DirectMessage[]>([]);
   const [typedMessage, setTypedMessage] = useState('');
   const [isSendingDm, setIsSendingDm] = useState(false);
   const [loadingDm, setLoadingDm] = useState(false);
@@ -274,6 +277,140 @@ export default function Collaboration() {
   });
 
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Load all user's direct messages (where user is sender or receiver) for Inbox aggregation
+  useEffect(() => {
+    if (!student?.id) {
+      setUserDms([]);
+      return;
+    }
+
+    const qReceiver = query(
+      collection(db, 'direct_messages'),
+      where('receiverId', '==', student.id)
+    );
+
+    const qSender = query(
+      collection(db, 'direct_messages'),
+      where('senderId', '==', student.id)
+    );
+
+    const unsubReceiver = onSnapshot(qReceiver, (snapshot) => {
+      const recMsgs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as DirectMessage[];
+
+      setUserDms(prev => {
+        const nonRec = prev.filter(m => m.receiverId !== student.id);
+        return [...nonRec, ...recMsgs];
+      });
+    }, (error) => {
+      console.error("Error loading receiver DMs:", error);
+    });
+
+    const unsubSender = onSnapshot(qSender, (snapshot) => {
+      const sendMsgs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as DirectMessage[];
+
+      setUserDms(prev => {
+        const nonSend = prev.filter(m => m.senderId !== student.id);
+        return [...nonSend, ...sendMsgs];
+      });
+    }, (error) => {
+      console.error("Error loading sender DMs:", error);
+    });
+
+    return () => {
+      unsubReceiver();
+      unsubSender();
+    };
+  }, [student?.id]);
+
+  // Auto-mark any unread message from selectedUser as read when active thread is open
+  useEffect(() => {
+    if (!student?.id || !selectedUser?.id || collabTab !== 'dm') return;
+
+    userDms.forEach((msg) => {
+      if (msg.senderId === selectedUser.id && msg.receiverId === student.id && !msg.read && msg.id) {
+        updateDoc(doc(db, 'direct_messages', msg.id), {
+          read: true,
+          chatKey: [student.id, selectedUser.id].sort().join('_')
+        }).catch((err) => console.error("Error marking DM as read:", err));
+      }
+    });
+  }, [student?.id, selectedUser?.id, collabTab, userDms]);
+
+  const handleMarkAllDmsAsRead = async () => {
+    if (!student?.id) return;
+    const unreadMsgs = userDms.filter(m => m.receiverId === student.id && !m.read);
+    for (const msg of unreadMsgs) {
+      if (msg.id) {
+        try {
+          await updateDoc(doc(db, 'direct_messages', msg.id), { read: true });
+        } catch (err) {
+          console.error("Error marking DM as read:", err);
+        }
+      }
+    }
+  };
+
+  // Aggregate userDms into recent active conversation threads
+  const activeConversations = useMemo(() => {
+    if (!student?.id) return [];
+
+    const map = new Map<string, {
+      interlocutorId: string;
+      interlocutor: Student | null;
+      messages: DirectMessage[];
+      unreadCount: number;
+      lastMessage: DirectMessage;
+    }>();
+
+    userDms.forEach(msg => {
+      const interlocutorId = msg.senderId === student.id ? msg.receiverId : msg.senderId;
+      if (!interlocutorId) return;
+
+      if (!map.has(interlocutorId)) {
+        const interlocutor = allUsers.find(u => u.id === interlocutorId) || null;
+        map.set(interlocutorId, {
+          interlocutorId,
+          interlocutor,
+          messages: [],
+          unreadCount: 0,
+          lastMessage: msg
+        });
+      }
+
+      const conv = map.get(interlocutorId)!;
+      conv.messages.push(msg);
+
+      if (msg.receiverId === student.id && !msg.read) {
+        conv.unreadCount += 1;
+      }
+    });
+
+    const list = Array.from(map.values()).map(conv => {
+      if (!conv.interlocutor) {
+        conv.interlocutor = allUsers.find(u => u.id === conv.interlocutorId) || null;
+      }
+      conv.messages.sort((a, b) => {
+        const timeA = a.timestamp?.seconds || (typeof a.timestamp === 'string' ? new Date(a.timestamp).getTime() / 1000 : 0);
+        const timeB = b.timestamp?.seconds || (typeof b.timestamp === 'string' ? new Date(b.timestamp).getTime() / 1000 : 0);
+        return timeA - timeB;
+      });
+      conv.lastMessage = conv.messages[conv.messages.length - 1];
+      return conv;
+    });
+
+    return list.sort((a, b) => {
+      const timeA = a.lastMessage?.timestamp?.seconds || 0;
+      const timeB = b.lastMessage?.timestamp?.seconds || 0;
+      return timeB - timeA;
+    });
+  }, [userDms, allUsers, student?.id]);
 
   // Load Forum discussions
   useEffect(() => {
@@ -309,7 +446,7 @@ export default function Collaboration() {
     return () => unsubscribe();
   }, []);
 
-  // Load active Direct Message thread
+  // Load active Direct Message thread & mark incoming unread messages as read
   useEffect(() => {
     if (!student || !selectedUser || collabTab !== 'dm') {
       setDmMessages([]);
@@ -319,8 +456,6 @@ export default function Collaboration() {
     setLoadingDm(true);
     const chatKey = [student.id, selectedUser.id].sort().join('_');
     
-    // Using a simple equality query with client-side sorting 
-    // to strictly preserve cost and prevent missing-index firestore crashes!
     const q = query(
       collection(db, 'direct_messages'), 
       where('chatKey', '==', chatKey)
@@ -331,6 +466,14 @@ export default function Collaboration() {
         id: doc.id,
         ...doc.data()
       })) as DirectMessage[];
+
+      // Auto-mark any unread message sent by selectedUser to student as read
+      snapshot.docs.forEach(docSnap => {
+        const msg = docSnap.data();
+        if (msg.senderId === selectedUser.id && msg.receiverId === student.id && !msg.read) {
+          updateDoc(doc(db, 'direct_messages', docSnap.id), { read: true }).catch(() => {});
+        }
+      });
 
       // Sort messages chronologically by timestamp (client side)
       const sortedMessages = messagesList.sort((a, b) => {
@@ -393,6 +536,7 @@ export default function Collaboration() {
       receiverName: selectedUser.name,
       message: typedMessage.trim(),
       chatKey,
+      read: false,
       timestamp: serverTimestamp()
     } as any;
 
@@ -523,14 +667,19 @@ export default function Collaboration() {
           </button>
           <button
             onClick={() => setCollabTab('dm')}
-            className={`px-3 sm:px-6 py-2.5 rounded-xl font-bold text-[11px] sm:text-xs md:text-sm transition-all flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer ${
+            className={`px-3 sm:px-6 py-2.5 rounded-xl font-bold text-[11px] sm:text-xs md:text-sm transition-all flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer relative ${
               collabTab === 'dm' 
                 ? 'bg-white dark:bg-[#131926] text-indigo-700 dark:text-indigo-400 shadow-sm font-black' 
                 : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-slate-100'
             }`}
           >
             <MessageSquare size={14} className="sm:w-4 sm:h-4" />
-            <span>Direktori & DM</span>
+            <span>Pesan & Obrolan</span>
+            {unreadDmCount > 0 && (
+              <span className="px-2 py-0.5 text-[10px] font-black bg-rose-500 text-white rounded-full shadow-sm animate-pulse ml-1">
+                {unreadDmCount > 99 ? '99+' : unreadDmCount}
+              </span>
+            )}
           </button>
         </div>
       </header>
@@ -974,153 +1123,310 @@ export default function Collaboration() {
       {collabTab === 'dm' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-8 items-stretch h-[calc(100vh-240px)] lg:h-[calc(100vh-280px)] min-h-[500px]">
           
-          {/* LEFT COLUMN: LIST DIRECTORY BY ROLES */}
+          {/* LEFT COLUMN: CHAT INBOX & DIRECTORY */}
           <div className={cn("lg:col-span-12 xl:col-span-5 bg-white dark:bg-[#131926] border border-gray-150 dark:border-slate-800 rounded-2xl md:rounded-[32px] shadow-sm flex flex-col overflow-hidden max-h-full lg:col-span-5", selectedUser ? "hidden lg:flex" : "flex")}>
             
-            {/* Header, Search and Segment Selector */}
-            <div className="p-6 border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/40 space-y-4">
-              <div className="flex justify-between items-center">
-                <h3 className="font-bold text-gray-900 dark:text-gray-100 text-lg">Direktori & Kontak</h3>
-                <span className="bg-indigo-50 dark:bg-indigo-950/40 text-indigo-605 dark:text-indigo-400 text-[10px] px-2.5 py-1 rounded-full font-black uppercase tracking-wider">
-                  TJKT SMKN 1
-                </span>
-              </div>
-
-              {/* SearchBar */}
-              <div className="relative">
-                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input 
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Cari nama, email, atau bio..."
-                  className="w-full pl-11 pr-4 py-3 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-600/20 dark:text-white dark:placeholder-gray-500 shadow-sm"
-                />
-                {searchQuery && (
-                  <button onClick={() => setSearchQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300">
-                    <X size={14} />
+            {/* Header with Sub-Tabs: Pesan Masuk vs Direktori Kontak */}
+            <div className="p-4 sm:p-5 border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/40 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-gray-900 dark:text-gray-100 text-base sm:text-lg flex items-center gap-2">
+                  <span>Chat & Pesan Direct</span>
+                </h3>
+                {unreadDmCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={handleMarkAllDmsAsRead}
+                    className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/80 px-2.5 py-1 rounded-full transition-colors cursor-pointer border border-indigo-200 dark:border-indigo-800"
+                  >
+                    Tandai Semua Dibaca
                   </button>
+                ) : (
+                  <span className="bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 text-[10px] px-2.5 py-1 rounded-full font-black uppercase tracking-wider">
+                    TJKT SMKN 1
+                  </span>
                 )}
               </div>
 
-              {/* Segments (Tabs for Student, Teacher, Admin) */}
-              <div className="grid grid-cols-3 bg-gray-200/50 dark:bg-slate-900/80 p-0.5 sm:p-1 rounded-xl border border-gray-200/20 dark:border-slate-800 w-full gap-0.5 xs:gap-1">
-                {(['student', 'teacher', 'admin'] as const).map(role => (
-                  <button
-                    key={role}
-                    onClick={() => setRoleFilter(role)}
-                    className={`py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer whitespace-nowrap truncate text-center ${
-                      roleFilter === role 
-                        ? 'bg-white dark:bg-[#131926] text-indigo-600 dark:text-indigo-400 shadow-sm font-black shadow-indigo-100/10' 
-                        : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    {role === 'student' ? 'Siswa' : role === 'teacher' ? 'Guru' : 'Admin'}
-                  </button>
-                ))}
+              {/* Sub-tab switcher: Pesan Masuk (Inbox) vs Direktori Kontak */}
+              <div className="grid grid-cols-2 bg-gray-200/60 dark:bg-slate-900 p-1 rounded-xl border border-gray-200/40 dark:border-slate-800 gap-1">
+                <button
+                  onClick={() => setDmSubTab('inbox')}
+                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer relative ${
+                    dmSubTab === 'inbox'
+                      ? 'bg-white dark:bg-[#131926] text-indigo-600 dark:text-indigo-400 shadow-sm font-black'
+                      : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <Inbox size={14} />
+                  <span>Pesan Masuk</span>
+                  {unreadDmCount > 0 && (
+                    <span className="px-1.5 py-0.2 text-[9px] font-black bg-rose-500 text-white rounded-full ml-1 animate-pulse">
+                      {unreadDmCount > 99 ? '99+' : unreadDmCount}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  onClick={() => setDmSubTab('directory')}
+                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    dmSubTab === 'directory'
+                      ? 'bg-white dark:bg-[#131926] text-indigo-600 dark:text-indigo-400 shadow-sm font-black'
+                      : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <Users size={14} />
+                  <span>Direktori Kontak</span>
+                </button>
               </div>
-            </div>
 
-            {/* User Row Lists */}
-            <div className="flex-1 overflow-y-auto divide-y divide-gray-50 p-3 space-y-2">
-              {filteredUsers.length === 0 ? (
-                <div className="p-12 text-center text-gray-400">
-                  <User size={36} className="mx-auto mb-3 opacity-20" />
-                  <p className="text-xs">Tidak ada pengguna ditemukan.</p>
+              {/* In Directory mode, render search bar & role filters */}
+              {dmSubTab === 'directory' && (
+                <div className="space-y-3 pt-1">
+                  <div className="relative">
+                    <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input 
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Cari nama, email, atau bio..."
+                      className="w-full pl-11 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-600/20 dark:text-white dark:placeholder-gray-500 shadow-sm"
+                    />
+                    {searchQuery && (
+                      <button onClick={() => setSearchQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Segments (Tabs for Student, Teacher, Admin) */}
+                  <div className="grid grid-cols-3 bg-gray-200/50 dark:bg-slate-900/80 p-0.5 sm:p-1 rounded-xl border border-gray-200/20 dark:border-slate-800 w-full gap-0.5 xs:gap-1">
+                    {(['student', 'teacher', 'admin'] as const).map(role => (
+                      <button
+                        key={role}
+                        onClick={() => setRoleFilter(role)}
+                        className={`py-1.5 rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer whitespace-nowrap truncate text-center ${
+                          roleFilter === role 
+                            ? 'bg-white dark:bg-[#131926] text-indigo-600 dark:text-indigo-400 shadow-sm font-black shadow-indigo-100/10' 
+                            : 'text-gray-500 hover:text-gray-800 dark:text-gray-400'
+                        }`}
+                      >
+                        {role === 'student' ? 'Siswa' : role === 'teacher' ? 'Guru' : 'Admin'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              ) : (
-                filteredUsers.map(u => {
-                  const isSelected = selectedUser?.id === u.id;
-                  return (
-                    <div 
-                      key={u.id}
-                      onClick={() => setSelectedUser(u)}
-                      className={`p-4 rounded-2xl flex items-start gap-4 transition-all cursor-pointer border ${
-                        isSelected 
-                          ? 'bg-indigo-50/40 dark:bg-indigo-950/20 border-indigo-200/60 dark:border-indigo-800/40 shadow-sm' 
-                          : 'bg-white dark:bg-slate-900 border-transparent dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50'
-                      }`}
-                    >
-                      <img 
-                        src={u.avatar} 
-                        alt={u.name} 
-                        className="w-11 h-11 rounded-xl object-cover shrink-0" 
-                        referrerPolicy="no-referrer" 
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 justify-between">
-                          <h4 className="font-bold text-gray-900 dark:text-gray-100 truncate text-sm">{u.name}</h4>
-                          <span className={`text-[9px] font-bold uppercase tracking-widest shrink-0 px-2 py-0.5 rounded-md ${
-                            u.role === 'admin' 
-                              ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400' 
-                              : u.role === 'teacher' 
-                              ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400' 
-                              : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-450'
-                          }`}>
-                            {u.role === 'student' ? 'Siswa' : u.role === 'teacher' ? 'Guru' : 'Admin'}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-gray-400 truncate mt-0.5">{u.email}</p>
-                        {u.bio && (
-                          <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-1 truncate max-w-xs italic leading-relaxed">
-                            "{u.bio}"
-                          </p>
-                        )}
-
-                        {/* Fast Call, WA, Email actions */}
-                        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-100/30 dark:border-slate-800/50">
-                          <a 
-                            href={`mailto:${u.email}`}
-                            onClick={(e) => e.stopPropagation()}
-                            className="p-1.5 bg-gray-50 hover:bg-indigo-100 text-gray-400 hover:text-indigo-600 dark:bg-slate-950 dark:hover:bg-indigo-900/60 dark:text-slate-400 rounded-lg transition-colors cursor-pointer"
-                            title="Kirim Email"
-                          >
-                            <Mail size={12} />
-                          </a>
-                          {u.whatsapp && (
-                            <a 
-                              href={`https://wa.me/${u.whatsapp}`}
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 dark:bg-slate-950 dark:hover:bg-emerald-900/60 dark:text-emerald-400 rounded-lg transition-colors cursor-pointer"
-                              title="Hubungi WhatsApp"
-                            >
-                              <Phone size={12} />
-                            </a>
-                          )}
-                          {u.instagram && (
-                            <a 
-                              href={`https://instagram.com/${u.instagram}`}
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="p-1.5 bg-pink-50 hover:bg-pink-100 text-pink-600 dark:bg-[#131926] dark:hover:bg-pink-905/30 dark:text-pink-400 rounded-lg transition-colors cursor-pointer text-[10px] font-bold px-2 py-1"
-                              title="Lihat Instagram"
-                            >
-                              @
-                            </a>
-                          )}
-                          {u.phone && (
-                            <a 
-                              href={`tel:${u.phone}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-slate-950 dark:hover:bg-blue-900/60 dark:text-blue-400 rounded-lg transition-colors cursor-pointer"
-                              title="Panggil Telepon"
-                            >
-                              <Phone size={12} />
-                            </a>
-                          )}
-                          <span className="text-[10px] text-indigo-650 dark:text-indigo-400 font-bold ml-auto flex items-center gap-1 cursor-pointer">
-                            Chat DM <CornerDownRight size={10} />
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
               )}
             </div>
+
+            {/* BODY 1: PESAN MASUK (INBOX) LIST */}
+            {dmSubTab === 'inbox' && (
+              <div className="flex-1 overflow-y-auto divide-y divide-gray-100 dark:divide-slate-800/60 p-2 space-y-1">
+                {activeConversations.length === 0 ? (
+                  <div className="p-8 text-center text-gray-400 space-y-3 my-auto">
+                    <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
+                      <Inbox size={24} />
+                    </div>
+                    <p className="text-xs font-bold text-gray-700 dark:text-gray-300">Belum Ada Obrolan Masuk</p>
+                    <p className="text-[11px] text-gray-500 dark:text-slate-400 max-w-xs mx-auto leading-relaxed">
+                      Anda belum memiliki riwayat obrolan. Buka tab <strong>"Direktori Kontak"</strong> untuk mencari guru atau rekan kelas dan mulai pesan baru!
+                    </p>
+                    <button
+                      onClick={() => setDmSubTab('directory')}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer mt-2"
+                    >
+                      Cari Kontak Sekarang
+                    </button>
+                  </div>
+                ) : (
+                  activeConversations.map(conv => {
+                    const partner = conv.interlocutor;
+                    const isSelected = selectedUser?.id === conv.interlocutorId;
+                    const partnerName = partner?.name || (conv.lastMessage.senderId === student?.id ? conv.lastMessage.receiverName : conv.lastMessage.senderName) || 'Pengguna';
+                    const partnerAvatar = partner?.avatar || conv.lastMessage.senderAvatar || `https://picsum.photos/seed/${conv.interlocutorId}/40/40`;
+                    const partnerRole = partner?.role || 'student';
+                    
+                    const timeStr = conv.lastMessage.timestamp?.seconds 
+                      ? new Date(conv.lastMessage.timestamp.seconds * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+                      : 'Baru saja';
+
+                    return (
+                      <div
+                        key={conv.interlocutorId}
+                        onClick={() => {
+                          if (partner) {
+                            setSelectedUser(partner);
+                          } else {
+                            setSelectedUser({
+                              id: conv.interlocutorId,
+                              name: partnerName,
+                              email: '',
+                              role: partnerRole,
+                              avatar: partnerAvatar,
+                              competence: { computationalThinking: 0, ictLiteracy: 0, projectManagement: 0, collaboration: 0, appUsage: 0, programming: 0 },
+                              projects: [],
+                              teamIds: [],
+                              portfolio: []
+                            });
+                          }
+                        }}
+                        className={`p-3.5 rounded-2xl flex items-center gap-3.5 transition-all cursor-pointer border relative ${
+                          isSelected
+                            ? 'bg-indigo-50/70 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800 shadow-sm'
+                            : conv.unreadCount > 0
+                            ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/40 font-bold'
+                            : 'bg-white dark:bg-slate-900 border-transparent hover:bg-gray-50 dark:hover:bg-slate-800/50'
+                        }`}
+                      >
+                        <div className="relative shrink-0">
+                          <img 
+                            src={partnerAvatar} 
+                            alt={partnerName} 
+                            className="w-11 h-11 rounded-xl object-cover"
+                            referrerPolicy="no-referrer" 
+                          />
+                          {conv.unreadCount > 0 && (
+                            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-rose-500 border-2 border-white dark:border-slate-900 rounded-full animate-pulse" />
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-1">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <h4 className={`text-xs sm:text-sm truncate ${conv.unreadCount > 0 ? 'font-black text-gray-900 dark:text-white' : 'font-bold text-gray-800 dark:text-gray-200'}`}>
+                                {partnerName}
+                              </h4>
+                              <span className={`text-[8px] font-extrabold uppercase px-1.5 py-0.2 rounded ${
+                                partnerRole === 'admin' ? 'bg-rose-100 text-rose-600' :
+                                partnerRole === 'teacher' ? 'bg-blue-100 text-blue-600' : 'bg-emerald-100 text-emerald-600'
+                              }`}>
+                                {partnerRole === 'student' ? 'Siswa' : partnerRole === 'teacher' ? 'Guru' : 'Admin'}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-gray-400 shrink-0 font-medium">{timeStr}</span>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-2 mt-1">
+                            <p className={`text-xs truncate ${conv.unreadCount > 0 ? 'text-gray-900 dark:text-gray-100 font-extrabold' : 'text-gray-500 dark:text-slate-400'}`}>
+                              {conv.lastMessage.senderId === student?.id ? <span className="text-indigo-600 font-semibold">Anda: </span> : null}
+                              {conv.lastMessage.message || (conv.lastMessage.mediaUrl ? `[Lampiran ${conv.lastMessage.mediaType || 'media'}]` : 'Pesan')}
+                            </p>
+
+                            {conv.unreadCount > 0 && (
+                              <span className="px-2 py-0.5 text-[10px] font-black bg-rose-500 text-white rounded-full shrink-0 shadow-sm animate-pulse">
+                                {conv.unreadCount} baru
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+
+            {/* BODY 2: DIREKTORI KONTAK LIST */}
+            {dmSubTab === 'directory' && (
+              <div className="flex-1 overflow-y-auto divide-y divide-gray-50 dark:divide-slate-800/60 p-3 space-y-2">
+                {filteredUsers.length === 0 ? (
+                  <div className="p-12 text-center text-gray-400">
+                    <User size={36} className="mx-auto mb-3 opacity-20" />
+                    <p className="text-xs">Tidak ada pengguna ditemukan.</p>
+                  </div>
+                ) : (
+                  filteredUsers.map(u => {
+                    const isSelected = selectedUser?.id === u.id;
+                    return (
+                      <div 
+                        key={u.id}
+                        onClick={() => setSelectedUser(u)}
+                        className={`p-4 rounded-2xl flex items-start gap-4 transition-all cursor-pointer border ${
+                          isSelected 
+                            ? 'bg-indigo-50/40 dark:bg-indigo-950/20 border-indigo-200/60 dark:border-indigo-800/40 shadow-sm' 
+                            : 'bg-white dark:bg-slate-900 border-transparent dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50'
+                        }`}
+                      >
+                        <img 
+                          src={u.avatar} 
+                          alt={u.name} 
+                          className="w-11 h-11 rounded-xl object-cover shrink-0" 
+                          referrerPolicy="no-referrer" 
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 justify-between">
+                            <h4 className="font-bold text-gray-900 dark:text-gray-100 truncate text-sm">{u.name}</h4>
+                            <span className={`text-[9px] font-bold uppercase tracking-widest shrink-0 px-2 py-0.5 rounded-md ${
+                              u.role === 'admin' 
+                                ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400' 
+                                : u.role === 'teacher' 
+                                ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400' 
+                                : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-450'
+                            }`}>
+                              {u.role === 'student' ? 'Siswa' : u.role === 'teacher' ? 'Guru' : 'Admin'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-gray-400 truncate mt-0.5">{u.email}</p>
+                          {u.bio && (
+                            <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-1 truncate max-w-xs italic leading-relaxed">
+                              "{u.bio}"
+                            </p>
+                          )}
+
+                          {/* Fast Call, WA, Email actions */}
+                          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-100/30 dark:border-slate-800/50">
+                            <a 
+                              href={`mailto:${u.email}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="p-1.5 bg-gray-50 hover:bg-indigo-100 text-gray-400 hover:text-indigo-600 dark:bg-slate-950 dark:hover:bg-indigo-900/60 dark:text-slate-400 rounded-lg transition-colors cursor-pointer"
+                              title="Kirim Email"
+                            >
+                              <Mail size={12} />
+                            </a>
+                            {u.whatsapp && (
+                              <a 
+                                href={`https://wa.me/${u.whatsapp}`}
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 dark:bg-slate-950 dark:hover:bg-emerald-900/60 dark:text-emerald-400 rounded-lg transition-colors cursor-pointer"
+                                title="Hubungi WhatsApp"
+                              >
+                                <Phone size={12} />
+                              </a>
+                            )}
+                            {u.instagram && (
+                              <a 
+                                href={`https://instagram.com/${u.instagram}`}
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="p-1.5 bg-pink-50 hover:bg-pink-100 text-pink-600 dark:bg-[#131926] dark:hover:bg-pink-905/30 dark:text-pink-400 rounded-lg transition-colors cursor-pointer text-[10px] font-bold px-2 py-1"
+                                title="Lihat Instagram"
+                              >
+                                @
+                              </a>
+                            )}
+                            {u.phone && (
+                              <a 
+                                href={`tel:${u.phone}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-slate-950 dark:hover:bg-blue-900/60 dark:text-blue-400 rounded-lg transition-colors cursor-pointer"
+                                title="Panggil Telepon"
+                              >
+                                <Phone size={12} />
+                              </a>
+                            )}
+                            <span className="text-[10px] text-indigo-650 dark:text-indigo-400 font-bold ml-auto flex items-center gap-1 cursor-pointer">
+                              Chat DM <CornerDownRight size={10} />
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
           </div>
 
           {/* RIGHT COLUMN: ACTIVE DIRECT MESSAGE THREAD */}
@@ -1176,15 +1482,15 @@ export default function Collaboration() {
 
                   {/* Fast Dial badges inside Conversation screen */}
                   <div className="flex items-center gap-2">
-                    {/* Kembali (Back) button for mobile users */}
+                    {/* Kembali (Back) button */}
                     <button 
                       type="button"
                       onClick={() => setSelectedUser(null)} 
-                      className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer lg:hidden border border-gray-200 dark:border-slate-700"
-                      title="Kembali ke Direktori"
+                      className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer border border-gray-200 dark:border-slate-700"
+                      title="Kembali ke Pesan Masuk / Direktori"
                     >
                       <ArrowLeft size={14} />
-                      <span>Kembali</span>
+                      <span className="hidden sm:inline">Kembali</span>
                     </button>
 
                     {selectedUser.whatsapp && (

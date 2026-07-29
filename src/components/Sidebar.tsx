@@ -26,16 +26,16 @@ const menuItems = [
 ];
 
 export default function Sidebar({ activeTab, setActiveTab, isCollapsed, setIsCollapsed }: SidebarProps) {
-  const { signOut, isAdmin, isTeacher } = useFirebase();
+  const { signOut, isAdmin, isTeacher, unreadDmCount } = useFirebase();
 
   const filteredMenuItems = menuItems.filter(item => {
-    // 1. If admin, they ONLY see dashboard, admin center, and settings
+    // 1. If admin, they see dashboard, projects, admin center, collaboration, and settings
     if (isAdmin) {
-      return ['dashboard', 'admin', 'settings'].includes(item.id);
+      return ['dashboard', 'projects', 'admin', 'collaboration', 'settings'].includes(item.id);
     }
-    // 2. If teacher, they ONLY see dashboard, teacher console, collaboration, and settings
+    // 2. If teacher, they see dashboard, projects, teacher console, collaboration, and settings
     if (isTeacher) {
-      return ['dashboard', 'teacher', 'collaboration', 'settings'].includes(item.id);
+      return ['dashboard', 'projects', 'teacher', 'collaboration', 'settings'].includes(item.id);
     }
     // 3. If student, they see dashboard, projects, portfolio, collaboration, and settings
     return ['dashboard', 'projects', 'portfolio', 'collaboration', 'settings'].includes(item.id);
@@ -78,24 +78,36 @@ export default function Sidebar({ activeTab, setActiveTab, isCollapsed, setIsCol
         {filteredMenuItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
+          const showDmBadge = item.id === 'collaboration' && unreadDmCount > 0;
+
           return (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              title={isCollapsed ? item.label : undefined}
+              title={isCollapsed ? (showDmBadge ? `${item.label} (${unreadDmCount} pesan baru)` : item.label) : undefined}
               className={cn(
-                "w-full flex items-center rounded-lg text-sm font-medium transition-all duration-200",
+                "w-full flex items-center rounded-lg text-sm font-medium transition-all duration-200 relative",
                 isCollapsed ? "justify-center p-3" : "gap-3 px-4 py-3",
                 isActive 
                   ? "bg-indigo-50 text-indigo-700 font-bold" 
                   : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
               )}
             >
-              <Icon size={20} className={cn(isActive ? "text-indigo-600" : "text-gray-400", "shrink-0")} />
+              <div className="relative shrink-0">
+                <Icon size={20} className={cn(isActive ? "text-indigo-600" : "text-gray-400")} />
+                {showDmBadge && isCollapsed && (
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-white animate-pulse" />
+                )}
+              </div>
               {!isCollapsed && (
                 <span className="truncate">{item.label}</span>
               )}
-              {!isCollapsed && isActive && (
+              {!isCollapsed && showDmBadge && (
+                <span className="ml-auto px-2 py-0.5 text-[10px] font-black bg-rose-500 text-white rounded-full shadow-sm animate-pulse">
+                  {unreadDmCount > 99 ? '99+' : unreadDmCount}
+                </span>
+              )}
+              {!isCollapsed && !showDmBadge && isActive && (
                 <motion.div
                   layoutId="activeTab"
                   className="ml-auto w-1.5 h-1.5 bg-indigo-600 rounded-full"

@@ -1703,155 +1703,160 @@ export default function Collaboration() {
       {/* LIGHT FLUID ATTACHMENT MODAL */}
       <AnimatePresence>
         {showAttachModal && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[90] flex items-center justify-center p-3 sm:p-4">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-[32px] w-full max-w-lg shadow-2xl p-6 space-y-6 overflow-hidden"
+              className="bg-white rounded-[28px] sm:rounded-[32px] w-full max-w-lg shadow-2xl p-5 sm:p-6 flex flex-col max-h-[90vh] overflow-hidden"
             >
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center pb-3 border-b border-gray-100 shrink-0">
                 <div className="flex items-center gap-2">
                   <Paperclip className="text-indigo-600" size={20} />
-                  <h3 className="text-lg font-bold text-gray-900 border-none">Lampirkan File Media</h3>
+                  <h3 className="text-base sm:text-lg font-bold text-gray-900 border-none">Lampirkan File Media</h3>
                 </div>
                 <button 
+                  type="button"
                   onClick={() => setShowAttachModal(false)} 
-                  className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"
+                  className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
                 >
                   <X size={18} />
                 </button>
               </div>
 
-              <div className="bg-indigo-50 p-4.5 rounded-2xl text-[11px] text-indigo-900 leading-relaxed space-y-2">
-                <p className="font-black text-xs flex items-center gap-1.5 text-indigo-950">💡 Tips Berbagi File Gambar, Video, atau Berkas Tugas:</p>
-                <p>
-                  Agar pengiriman file berjalan lancar dan cepat, disarankan untuk mengunggah berkas Anda ke <strong>Google Drive</strong>, <strong>OneDrive</strong>, atau media penyimpanan online sejenis terlebih dahulu.
-                </p>
-                <p className="font-semibold text-indigo-950 bg-indigo-100/50 p-2.5 rounded-xl border border-indigo-200/40">
-                  Penting: Pastikan Anda telah mengubah pengaturan berbagi file tersebut menjadi <strong>"Siapa saja yang memiliki link dapat melihat"</strong>, lalu salin (copy) tautannya dan tempelkan pada kolom di bawah!
-                </p>
-              </div>
+              {/* Scrollable Body Content */}
+              <div className="flex-1 overflow-y-auto space-y-5 pr-1 py-3 text-left">
+                <div className="bg-indigo-50 p-4 rounded-2xl text-[11px] text-indigo-900 leading-relaxed space-y-2">
+                  <p className="font-black text-xs flex items-center gap-1.5 text-indigo-950">💡 Tips Berbagi File Gambar, Video, atau Berkas Tugas:</p>
+                  <p>
+                    Agar pengiriman file berjalan lancar dan cepat, disarankan untuk mengunggah berkas Anda ke <strong>Google Drive</strong>, <strong>OneDrive</strong>, atau media penyimpanan online sejenis terlebih dahulu.
+                  </p>
+                  <p className="font-semibold text-indigo-950 bg-indigo-100/50 p-2.5 rounded-xl border border-indigo-200/40">
+                    Penting: Pastikan Anda telah mengubah pengaturan berbagi file tersebut menjadi <strong>"Siapa saja yang memiliki link dapat melihat"</strong>, lalu salin (copy) tautannya dan tempelkan pada kolom di bawah!
+                  </p>
+                </div>
 
-              {/* OPTION 1: PASTE PUBLIC LINK URL */}
-              <div className="space-y-3">
-                <span className="text-[11.5px] font-black tracking-widest text-indigo-600 uppercase block">Opsi 1: Paling Direkomendasikan (Tautan Google Drive / Cloud)</span>
-                <p className="text-[11px] text-gray-500 -mt-2">Tempel link berbagi Google Drive Anda di sini, lalu pilih kategori berkasnya:</p>
-                <div className="grid grid-cols-1 gap-2">
-                  <input 
-                    type="url"
-                    value={mediaInput.url}
-                    onChange={(e) => setMediaInput({ ...mediaInput, url: e.target.value, label: 'Custom URL' })}
-                    placeholder="Contoh: https://drive.google.com/file/d/.../view?usp=sharing"
-                    className="w-full p-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs focus:ring-2 focus:ring-indigo-600/20 focus:bg-white focus:outline-none transition-all placeholder-gray-400"
-                  />
-                  <div className="flex bg-gray-100/80 rounded-xl p-1 w-full text-center">
-                    {(['image', 'video', 'audio', 'link'] as const).map(type => (
-                      <button
-                        key={type}
-                        type="button"
-                        onClick={() => setMediaInput({ ...mediaInput, type })}
-                        className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold capitalize transition-all ${
-                          mediaInput.type === type ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-900'
-                        }`}
-                      >
-                        {type === 'image' ? 'Gambar' : type === 'video' ? 'Video' : type === 'audio' ? 'Suara' : 'Link Web'}
-                      </button>
-                    ))}
+                {/* OPTION 1: PASTE PUBLIC LINK URL */}
+                <div className="space-y-2.5">
+                  <span className="text-[11.5px] font-black tracking-widest text-indigo-600 uppercase block">Opsi 1: Paling Direkomendasikan (Tautan Google Drive / Cloud)</span>
+                  <p className="text-[11px] text-gray-500">Tempel link berbagi Google Drive Anda di sini, lalu pilih kategori berkasnya:</p>
+                  <div className="grid grid-cols-1 gap-2">
+                    <input 
+                      type="url"
+                      value={mediaInput.url}
+                      onChange={(e) => setMediaInput({ ...mediaInput, url: e.target.value, label: 'Custom URL' })}
+                      placeholder="Contoh: https://drive.google.com/file/d/.../view?usp=sharing"
+                      className="w-full p-3 bg-gray-50 border border-gray-200 rounded-2xl text-xs focus:ring-2 focus:ring-indigo-600/20 focus:bg-white focus:outline-none transition-all placeholder-gray-400"
+                    />
+                    <div className="flex bg-gray-100/80 rounded-xl p-1 w-full text-center">
+                      {(['image', 'video', 'audio', 'link'] as const).map(type => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => setMediaInput({ ...mediaInput, type })}
+                          className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold capitalize transition-all cursor-pointer ${
+                            mediaInput.type === type ? 'bg-white text-indigo-600 shadow-xs' : 'text-gray-500 hover:text-gray-900'
+                          }`}
+                        >
+                          {type === 'image' ? 'Gambar' : type === 'video' ? 'Video' : type === 'audio' ? 'Suara' : 'Link Web'}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* OPTION 2: SIMULATED SAMPLE ATTACHMENTS (Network Engineering presets with Search) */}
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-[11.5px] font-black tracking-widest text-indigo-600 uppercase block">Opsi 2: Cari & Pilih Bahan Kolaborasi Projek Jaringan</span>
-                  <span className="text-[9px] bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full font-bold">Simulasi</span>
-                </div>
-                <p className="text-[11px] text-gray-500 -mt-2">Cari dari daftar materi, diagram topologi, atau latihan kerja yang pernah dikerjakan:</p>
-                <div className="relative">
-                  <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input 
-                    type="text"
-                    value={collabProjectSearch}
-                    onChange={(e) => setCollabProjectSearch(e.target.value)}
-                    placeholder="Ketik topik proyek: topologi, cisco, mikrotik, crimping..."
-                    className="w-full pl-9 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-600/10 placeholder-gray-400"
-                  />
-                  {collabProjectSearch && (
-                    <button 
-                      type="button"
-                      onClick={() => setCollabProjectSearch('')} 
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    >
-                      <X size={12} />
-                    </button>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 gap-1.5 max-h-40 overflow-y-auto pr-1">
-                  {SAMPLE_MEDIA.filter(item => 
-                    item.label.toLowerCase().includes(collabProjectSearch.toLowerCase())
-                  ).length === 0 ? (
-                    <div className="p-4 text-center bg-gray-50 rounded-xl text-[11px] text-gray-400 italic border border-dashed border-gray-200">
-                      Topik proyek tidak ditemukan. Silakan ketik kata kunci lain!
-                    </div>
-                  ) : (
-                    SAMPLE_MEDIA.filter(item => 
-                      item.label.toLowerCase().includes(collabProjectSearch.toLowerCase())
-                    ).map((item, idx) => (
-                      <button
-                        key={idx}
+                {/* OPTION 2: SIMULATED SAMPLE ATTACHMENTS */}
+                <div className="space-y-2.5">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[11.5px] font-black tracking-widest text-indigo-600 uppercase block">Opsi 2: Cari & Pilih Bahan Kolaborasi Projek Jaringan</span>
+                    <span className="text-[9px] bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full font-bold">Simulasi</span>
+                  </div>
+                  <p className="text-[11px] text-gray-500">Cari dari daftar materi, diagram topologi, atau latihan kerja yang pernah dikerjakan:</p>
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input 
+                      type="text"
+                      value={collabProjectSearch}
+                      onChange={(e) => setCollabProjectSearch(e.target.value)}
+                      placeholder="Ketik topik proyek: topologi, cisco, mikrotik, crimping..."
+                      className="w-full pl-9 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-600/10 placeholder-gray-400"
+                    />
+                    {collabProjectSearch && (
+                      <button 
                         type="button"
-                        onClick={() => {
-                          setMediaInput({ url: item.url, type: item.type, label: item.label });
-                          setShowAttachModal(false);
-                        }}
-                        className="p-3 border border-gray-100 hover:border-indigo-100 bg-gray-50/50 hover:bg-white text-left rounded-2xl flex items-center gap-3 transition-all text-xs text-gray-700 font-bold shadow-sm"
+                        onClick={() => setCollabProjectSearch('')} 
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
                       >
-                        {item.type === 'image' && <Image className="text-emerald-500 shrink-0" size={15} />}
-                        {item.type === 'video' && <Video className="text-blue-500 shrink-0" size={15} />}
-                        {item.type === 'audio' && <Volume2 className="text-pink-500 shrink-0" size={15} />}
-                        {item.type === 'link' && <Globe className="text-amber-500 shrink-0" size={15} />}
-                        <span className="truncate flex-1">{item.label}</span>
-                        <span className="text-[9px] bg-indigo-50 px-2 py-0.5 rounded-md text-indigo-600 font-normal shrink-0">Pilih</span>
+                        <X size={12} />
                       </button>
-                    ))
-                  )}
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                    {SAMPLE_MEDIA.filter(item => 
+                      item.label.toLowerCase().includes(collabProjectSearch.toLowerCase())
+                    ).length === 0 ? (
+                      <div className="p-3 text-center bg-gray-50 rounded-xl text-[11px] text-gray-400 italic border border-dashed border-gray-200">
+                        Topik proyek tidak ditemukan. Silakan ketik kata kunci lain!
+                      </div>
+                    ) : (
+                      SAMPLE_MEDIA.filter(item => 
+                        item.label.toLowerCase().includes(collabProjectSearch.toLowerCase())
+                      ).map((item, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setMediaInput({ url: item.url, type: item.type, label: item.label });
+                            setShowAttachModal(false);
+                          }}
+                          className="p-2.5 border border-gray-100 hover:border-indigo-200 bg-gray-50/50 hover:bg-indigo-50/30 text-left rounded-xl flex items-center gap-2.5 transition-all text-xs text-gray-700 font-bold shadow-xs cursor-pointer"
+                        >
+                          {item.type === 'image' && <Image className="text-emerald-500 shrink-0" size={15} />}
+                          {item.type === 'video' && <Video className="text-blue-500 shrink-0" size={15} />}
+                          {item.type === 'audio' && <Volume2 className="text-pink-500 shrink-0" size={15} />}
+                          {item.type === 'link' && <Globe className="text-amber-500 shrink-0" size={15} />}
+                          <span className="truncate flex-1">{item.label}</span>
+                          <span className="text-[9px] bg-indigo-50 px-2 py-0.5 rounded-md text-indigo-600 font-normal shrink-0">Pilih</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* OPTION 3: PROMPT FOR DIRECT HTML5 LOCAL UPLOADS */}
+                <div className="space-y-2.5">
+                  <span className="text-[11.5px] font-black tracking-widest text-indigo-600 uppercase block">Opsi 3: Kirim Berkas Langsung Komputer/HP</span>
+                  <p className="text-[11px] text-gray-500">Digunakan untuk ukuran berkas kecil (Foto screenshot, audio singkat, dll):</p>
+                  <label className="p-3.5 border-2 border-dashed border-gray-200 hover:border-indigo-500 rounded-2xl text-center flex flex-col items-center justify-center cursor-pointer transition-colors bg-gray-50/20 hover:bg-indigo-50/10">
+                    <input 
+                      type="file" 
+                      accept="image/*,video/*,audio/*"
+                      onChange={handleLocalFileUpload}
+                      className="hidden" 
+                    />
+                    <Paperclip className="text-indigo-500 mb-1" size={18} />
+                    <span className="text-xs font-bold text-gray-800">Pilih berkas dari Perangkat Saya</span>
+                    <p className="text-[10px] text-gray-400 mt-1 max-w-sm leading-relaxed px-2">
+                      💡 <strong>Cara Kerja:</strong> Berkas akan dibaca lokal dan diubah menjadi teks aman (Base64) di dalam pesan chat pribadi.
+                    </p>
+                  </label>
                 </div>
               </div>
 
-              {/* OPTION 3: PROMPT FOR DIRECT HTML5 LOCAL UPLOADS */}
-              <div className="space-y-3">
-                <span className="text-[11.5px] font-black tracking-widest text-indigo-600 uppercase block">Opsi 3: Kirim Berkas Langsung Komputer/HP</span>
-                <p className="text-[11px] text-gray-500 -mt-2">Digunakan untuk ukuran berkas kecil (Foto screenshot, audio singkat, dll):</p>
-                <label className="p-4 border-2 border-dashed border-gray-200 hover:border-indigo-500 rounded-2xl text-center flex flex-col items-center justify-center cursor-pointer transition-colors bg-gray-50/20 hover:bg-indigo-50/10">
-                  <input 
-                    type="file" 
-                    accept="image/*,video/*,audio/*"
-                    onChange={handleLocalFileUpload}
-                    className="hidden" 
-                  />
-                  <Paperclip className="text-indigo-500 mb-1" size={20} />
-                  <span className="text-xs font-bold text-gray-750">Pilih berkas dari Perangkat Saya</span>
-                  <p className="text-[10px] text-gray-400 mt-1 max-w-sm leading-relaxed px-2">
-                    💡 <strong>Cara Kerja:</strong> Berkas akan dibaca lokal dan diubah menjadi teks aman (Base64) di dalam pesan chat pribadi, sehingga aman tanpa biaya tambahan. Hindari file berukuran sangat besar (&gt;1MB) agar pesan terkirim dengan lancar.
-                  </p>
-                </label>
-              </div>
-
-              <div className="pt-4 border-t border-gray-100 flex justify-end gap-2 text-xs">
+              {/* Modal Footer */}
+              <div className="pt-3 border-t border-gray-100 flex justify-end gap-2 text-xs shrink-0 bg-white">
                 <button
                   type="button"
                   onClick={() => setShowAttachModal(false)}
-                  className="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold rounded-xl"
+                  className="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors cursor-pointer"
                 >
-                  Tutup
+                  Batal / Tutup
                 </button>
                 <button
                   type="button"
                   disabled={!mediaInput.url}
                   onClick={() => setShowAttachModal(false)}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl disabled:opacity-50"
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl disabled:opacity-50 transition-colors cursor-pointer shadow-xs"
                 >
                   Gunakan Lampiran
                 </button>
